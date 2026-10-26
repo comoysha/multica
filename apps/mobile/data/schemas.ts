@@ -575,7 +575,25 @@ const InboxItemSchema: z.ZodType<InboxItem> = z.object({
   read: z.boolean().default(false),
   archived: z.boolean().default(false),
   created_at: z.string().default(""),
-  details: z.record(z.string(), z.string()).nullable().default(null),
+  // Server writes non-string values here (counts, ratios, nulls — e.g.
+  // autopilot failure and delegated-retry notices). A strict string map made
+  // one such row fail the whole list and the inbox rendered permanently empty.
+  // Stringify primitives and drop anything else so a single row never poisons
+  // the list. Mirrors the leniency of packages/core `details: z.unknown()`.
+  details: z
+    .record(z.string(), z.unknown())
+    .nullable()
+    .catch(null)
+    .transform((d) => {
+      if (!d) return null;
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(d)) {
+        if (typeof v === "string") out[k] = v;
+        else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
+      }
+      return out;
+    })
+    .default(null),
 }).loose();
 
 export const InboxListSchema = z.array(InboxItemSchema).default([]);
