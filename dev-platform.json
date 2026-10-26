@@ -1,0 +1,9 @@
+{
+  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置。目前只登记合并前全量检查：手机端单测 + 类型检查。",
+  "linear_project": "multica",
+  "base_branch": "main",
+  "merge": {
+    "checks": "pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck",
+    "method": "squash"
+  }
+}
