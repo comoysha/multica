@@ -47,6 +47,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // the intended team on every `scripts/ios-run.sh` run, which also repairs
       // an already-mispinned checkout.
       appleTeamId: process.env.EXPO_APPLE_TEAM_ID,
+      // Build number for self-hosted Ad Hoc builds (install-hub passes the
+      // commit count); unset keeps Expo's default.
+      buildNumber: process.env.EXPO_IOS_BUILD_NUMBER,
       // Per-variant bundle id overrides exist for one reason: an Apple ID
       // can only sign bundle prefixes it owns, so contributors not on the
       // Multica Apple Developer team (and external users self-building a

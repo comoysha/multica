@@ -1,0 +1,29 @@
+{
+  "_说明": "multica 接入共用底座（~/dev-platform）的项目配置。各字段含义见底座的 tools/worktree、tools/merge、tools/release、services/install-hub 说明。",
+  "base_branch": "main",
+  "node": "22",
+  "worktree": {
+    "teardown": "scripts/dev/publish_ios_test_build.sh --remove"
+  },
+  "testbench": {
+    "up": "[ -f .env.worktree ] || make worktree-env; make up",
+    "down": "[ -f .env.worktree ] || make worktree-env; make down"
+  },
+  "release": {
+    "packages": {
+      "ios": {
+        "hub_id": "multica",
+        "paths": "^apps/mobile/",
+        "settings": [
+          "CURRENT_PROJECT_VERSION={commit_count}",
+          "EXPO_PUBLIC_API_URL=https://api.multica.ai",
+          "EXPO_PUBLIC_WEB_URL=https://multica.ai"
+        ]
+      }
+    },
+    "branch_package": {
+      "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/publish_ios_test_build\\.sh$)",
+      "publish": "scripts/dev/publish_ios_test_build.sh"
+    }
+  }
+}
