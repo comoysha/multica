@@ -1,18 +1,25 @@
 {
-  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：合并前全量检查、测试台、iOS 主包与手机分支测试包。各字段含义见底座的 tools/worktree、tools/merge、tools/release、services/install-hub 说明。",
+  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：工作目录隔离、合并闸、测试台、iOS 主包与手机分支测试包、按改动跑测试。本机正在用的 Multica 跑的是官方镜像、不从这个仓库部署，所以不登记 main.after_sync 和 release.deploy。",
   "linear_project": "multica",
   "base_branch": "main",
   "node": "22",
   "merge": {
     "checks": "pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck",
-    "method": "squash"
+    "method": "squash",
+    "on_confirmed": "~/dev-platform/tools/merge/gate.py confirm --linear"
   },
   "worktree": {
-    "teardown": "scripts/dev/publish_ios_test_build.sh --remove"
+    "port_range": [
+      42101,
+      42199
+    ],
+    "setup": "scripts/dev/dp_env.sh setup",
+    "teardown": "scripts/dev/dp_env.sh teardown \"$DP_REAL_ROOT\""
   },
   "testbench": {
-    "up": "[ -f .env.worktree ] || make worktree-env; make up",
-    "down": "[ -f .env.worktree ] || make worktree-env; make down"
+    "up": "scripts/dev/dp_env.sh up",
+    "down": "scripts/dev/dp_env.sh down",
+    "restore": "scripts/dev/dp_env.sh restore"
   },
   "release": {
     "packages": {
@@ -30,5 +37,18 @@
       "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/publish_ios_test_build\\.sh$)",
       "publish": "scripts/dev/publish_ios_test_build.sh"
     }
+  },
+  "tests": {
+    "runner": "pnpm -C apps/mobile exec vitest run {tests}",
+    "pattern": "^apps/mobile/.*\\.test\\.(ts|tsx)$",
+    "related": [
+      {
+        "match": "^(apps/mobile/.+)\\.(ts|tsx)$",
+        "tests": [
+          "\\1.test.ts",
+          "\\1.test.tsx"
+        ]
+      }
+    ]
   }
 }
