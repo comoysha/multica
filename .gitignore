@@ -57,7 +57,8 @@ apps/web/test-results/
 .multica/
 
 # local settings
-.claude/
+.claude/*
+!.claude/settings.json
 .tool-versions
 
 # feature tracking

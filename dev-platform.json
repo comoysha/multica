@@ -38,6 +38,10 @@
       "publish": "scripts/dev/publish_ios_test_build.sh"
     }
   },
+  "not_needed": {
+    "release.deploy": "本机正在用的 Multica 跑的是官方镜像（docker compose），不从这个仓库部署，没有要盯梢的线上部署。",
+    "main.after_sync": "本机正在用的 Multica 跑的是官方镜像（容器 multica-backend-1 等），不跑主库代码，合并后主库上没有要跟着重启的本机服务。"
+  },
   "tests": {
     "runner": "cd apps/mobile && pnpm exec vitest run $(printf '%s\\n' {tests} | sed 's#^apps/mobile/##')",
     "pattern": "^apps/mobile/.*\\.test\\.(ts|tsx)$",
