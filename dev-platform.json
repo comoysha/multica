@@ -39,7 +39,7 @@
     }
   },
   "tests": {
-    "runner": "pnpm -C apps/mobile exec vitest run {tests}",
+    "runner": "cd apps/mobile && pnpm exec vitest run $(printf '%s\\n' {tests} | sed 's#^apps/mobile/##')",
     "pattern": "^apps/mobile/.*\\.test\\.(ts|tsx)$",
     "related": [
       {
