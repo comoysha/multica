@@ -1,9 +1,10 @@
 {
-  "_说明": "multica 接入共用底座（~/dev-platform）的项目配置。各字段含义见底座的 tools/worktree、tools/merge、tools/release、services/install-hub 说明。",
+  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：合并前全量检查、测试台、iOS 主包与手机分支测试包。各字段含义见底座的 tools/worktree、tools/merge、tools/release、services/install-hub 说明。",
+  "linear_project": "multica",
   "base_branch": "main",
   "node": "22",
   "merge": {
-    "checks": "[ -f .env.worktree ] || make worktree-env; make check-worktree",
+    "checks": "pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck",
     "method": "squash"
   },
   "worktree": {
