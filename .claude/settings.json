@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/dev-platform/tools/worktree/create.sh\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/dev-platform/tools/worktree/remove.sh\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

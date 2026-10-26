@@ -119,6 +119,16 @@ Workspace-scoped queries filter by `workspace_id`; membership gates access and `
 - Default tests must not resolve or execute user-installed agent CLIs; pass test-created fake or missing executable paths. New default agent commands go in `scripts/agent-cli-command-names.txt`.
 - Only run real-agent smoke tests when explicitly authorized. Gate them behind `agentintegration` and check `MULTICA_RUN_REAL_AGENT_SMOKE=1` before executable lookup/account access. Run the specific test: `(cd server && MULTICA_RUN_REAL_AGENT_SMOKE=1 go test -tags=agentintegration ./pkg/agent -run '<test-name>' -count=1 -v)`.
 
+## Shared Dev Platform (~/dev-platform)
+
+Development workflow for this repository is provided by the shared local platform `~/dev-platform` (worktree create/teardown, task dispatch, merge gate, notifications, packaging and release). This repo only records its own facts in [`dev-platform.json`](dev-platform.json) at the root.
+
+- **Tasks**: local Multica (`MU-n`); see `~/dev-platform/rules/multica-workflow.md`, and `~/dev-platform/rules/workflow.md` for the shared rules.
+- **Worktrees**: one worktree per task (`<repo>-wt-<slug>`, branch `feat/<slug>`); make changes only inside it and treat the main checkout as read-only. New worktrees are initialized by `scripts/dev/dp_env.sh setup`: local config is symlinked from the main checkout and test data is an isolated copy cloned from a read-only snapshot of the live database.
+- **Tests**: while developing, run only related tests (`~/dev-platform/tools/tests/related.py --cmd`); leave the full check suite to pre-acceptance.
+- **Acceptance**: after opening the PR, run `~/dev-platform/tools/merge/gate.py prepare` in the worktree (merges the base branch, runs full checks, starts the testbench), then move the task to `in_review`. Only the user confirms a merge; after merge the platform tears down automatically (stops the testbench, drops the copy database, removes the worktree).
+- **Onboarding completeness**: `~/dev-platform/tools/onboard/onboard.py check`.
+
 ## Change and Delivery Rules
 
 - Keep changes scoped; reuse existing patterns. Code comments are English.
