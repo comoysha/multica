@@ -168,7 +168,7 @@ require_testbench() {
 }
 
 # 原生工程（ios/）是 Expo prebuild 生成的、不进 git。第一次发包前先把工程
-# 生成出来并装好 CocoaPods（这两件都很慢）；hub 侧的 --prebuild 只做增量的
+# 生成出来并装好 CocoaPods（这两件都很慢）；hub 侧的 --prebuild 每次重刷 config plugins 并补装 Pods（增量，较快）
 # config plugins 重刷（秒级），保证 app.config.ts 的改动每次都生效。
 ensure_native_project() {
   if [[ ! -d "${WT_ROOT}/node_modules" ]]; then
@@ -251,7 +251,7 @@ mode_publish() {
       --port "${api_port}" \
       --bundle-id "${TEST_BUNDLE_ID}" \
       --display-name "${TEST_DISPLAY_NAME}" \
-      --prebuild "cd ${MOBILE_DIR} && APP_ENV=${APP_VARIANT} EXPO_BUNDLE_IDENTIFIER_STAGING=${TEST_BUNDLE_ID} npx -y pnpm@10.28.2 exec expo prebuild -p ios --no-install" \
+      --prebuild "cd ${MOBILE_DIR} && APP_ENV=${APP_VARIANT} EXPO_BUNDLE_IDENTIFIER_STAGING=${TEST_BUNDLE_ID} npx -y pnpm@10.28.2 exec expo prebuild -p ios" \
       --setting "CURRENT_PROJECT_VERSION=$(git -C "${WT_ROOT}" rev-list --count HEAD)"
     mkdir -p "$(dirname "${STATE_FILE}")"
     jq -n \
