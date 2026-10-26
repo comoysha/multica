@@ -1,5 +1,5 @@
 {
-  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：工作目录隔离、合并闸、测试台、iOS 主包与手机分支测试包、按改动跑测试。本机正在用的 Multica 跑的是官方镜像、不从这个仓库部署，所以不登记 main.after_sync 和 release.deploy。",
+  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：工作目录隔离、合并闸、测试台、iOS 主包与手机分支测试包、按改动跑测试。本机正在用的 Multica 跑的是官方镜像、不从这个仓库部署，所以不登记 main.after_sync 和 release.deploy。iOS 主包连本机自己的 Multica：服务器地址是本机私有配置，写在安装页工具的 apps.json（build_settings），不进仓库（仓库公开）。",
   "linear_project": "multica",
   "base_branch": "main",
   "node": "22",
@@ -27,9 +27,7 @@
         "hub_id": "multica",
         "paths": "^apps/mobile/",
         "settings": [
-          "CURRENT_PROJECT_VERSION={commit_count}",
-          "EXPO_PUBLIC_API_URL=https://api.multica.ai",
-          "EXPO_PUBLIC_WEB_URL=https://multica.ai"
+          "CURRENT_PROJECT_VERSION={commit_count}"
         ]
       }
     },
