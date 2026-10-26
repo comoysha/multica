@@ -251,7 +251,7 @@ mode_publish() {
       --port "${api_port}" \
       --bundle-id "${TEST_BUNDLE_ID}" \
       --display-name "${TEST_DISPLAY_NAME}" \
-      --prebuild "APP_ENV=${APP_VARIANT} EXPO_BUNDLE_IDENTIFIER_STAGING=${TEST_BUNDLE_ID} npx -y pnpm@10.28.2 exec expo prebuild -p ios --no-install" \
+      --prebuild "cd ${MOBILE_DIR} && APP_ENV=${APP_VARIANT} EXPO_BUNDLE_IDENTIFIER_STAGING=${TEST_BUNDLE_ID} npx -y pnpm@10.28.2 exec expo prebuild -p ios --no-install" \
       --setting "CURRENT_PROJECT_VERSION=$(git -C "${WT_ROOT}" rev-list --count HEAD)"
     mkdir -p "$(dirname "${STATE_FILE}")"
     jq -n \
