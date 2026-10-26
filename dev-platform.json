@@ -2,6 +2,10 @@
   "_说明": "multica 接入共用底座（~/dev-platform）的项目配置。各字段含义见底座的 tools/worktree、tools/merge、tools/release、services/install-hub 说明。",
   "base_branch": "main",
   "node": "22",
+  "merge": {
+    "checks": "[ -f .env.worktree ] || make worktree-env; make check-worktree",
+    "method": "squash"
+  },
   "worktree": {
     "teardown": "scripts/dev/publish_ios_test_build.sh --remove"
   },
