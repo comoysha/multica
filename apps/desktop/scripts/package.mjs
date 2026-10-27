@@ -335,6 +335,21 @@ export function builderArgsForTarget(
   }
   builderArgs.push(`--${target.arch}`);
   builderArgs.push(...parsed.sharedArgs);
+  // electron-builder's productName override changes the .app label, but the
+  // packaged package.json keeps its original productName unless extraMetadata
+  // also overrides it. Electron reads that metadata for app.getName(), which
+  // controls userData and the single-instance lock.
+  const productNameArg = parsed.sharedArgs.find((arg) =>
+    arg.startsWith("-c.productName="),
+  );
+  if (
+    productNameArg &&
+    !parsed.sharedArgs.some((arg) => arg.startsWith("-c.extraMetadata.productName="))
+  ) {
+    builderArgs.push(
+      `-c.extraMetadata.productName=${productNameArg.slice("-c.productName=".length)}`,
+    );
+  }
   if (useScopedOutputDir) {
     builderArgs.push(
       `-c.directories.output=dist/${target.platform}-${target.arch}`,

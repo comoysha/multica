@@ -264,6 +264,23 @@ describe("resolveBuildMatrix", () => {
 });
 
 describe("builderArgsForTarget", () => {
+  it("writes the branch product name into the packaged metadata", () => {
+    const args = builderArgsForTarget(
+      { platform: "mac", arch: "arm64" },
+      {
+        allPlatforms: false,
+        sharedArgs: ["--publish", "never", "-c.productName=Multica·分支"],
+        platformTargets: { mac: [], win: [], linux: [] },
+        requestedPlatforms: ["mac"],
+        requestedArchs: ["arm64"],
+      },
+      "1.2.3",
+      { hostPlatform: "darwin" },
+    );
+    expect(args).toContain("-c.productName=Multica·分支");
+    expect(args).toContain("-c.extraMetadata.productName=Multica·分支");
+  });
+
   it("adds scoped output directories for multi-target builds", () => {
     expect(
       builderArgsForTarget(
