@@ -32,7 +32,7 @@
       },
       "mac": {
         "hub_id": "multica-mac",
-        "paths": "^apps/desktop/"
+        "paths": "^(apps/desktop/|packages/core/|packages/views/|packages/ui/)"
       }
     },
     "branch_package": {
