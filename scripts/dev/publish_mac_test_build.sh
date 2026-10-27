@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 给当前 worktree 发一个 Mac 桌面分支测试包：包连的是本 worktree 自己的测试台，
+# 给当前 worktree 发一个 Mac 桌面分支测试包：包连的是本机 worktree 的测试台，
 # 从内部安装页直接下载 dmg 安装（电脑浏览器点一下），与正式版并存、数据目录分开。
 #
 # 用法（都在 worktree 内执行）：
@@ -10,8 +10,8 @@
 #
 # 打 dmg、发布到安装页、把测试台端口用 HTTPS 暴露到 Tailscale，都由共用底座的安装页工具
 # ~/dev-platform/services/install-hub/hub.py 完成（不属于本仓库，可用 MULTICA_MAC_HUB 指到别处）。
-# 本脚本只负责：找到本 worktree 测试台的 API 端口、确认依赖已安装、
-# 发完把测试台地址写进分支包自己的 userData 配置（runtime-config.json），
+# 本脚本只负责：找到本 worktree 测试台的端口、确认依赖已安装、
+# 发完把本机地址写进分支包自己的 userData 配置（runtime-config.json），
 # 分支包启动时优先读它（见 apps/desktop/src/main/runtime-config-loader.ts），
 # 不碰正式版读的 ~/.multica/desktop.json。
 #
@@ -155,6 +155,22 @@ discover_api_port() {
   return 1
 }
 
+# 桌面 App 与测试台运行在同一台 Mac 上，直连后端可避开本机代理的
+# Tailscale DNS 劫持。安装页仍使用上面的公开端口供浏览器下载和自检。
+discover_local_backend_port() {
+  local envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir
+  for d in "${envs_dir}"/*/; do
+    [[ -f "${d}manifest.env" ]] || continue
+    dir="$(sed -n 's/^DIR=//p' "${d}manifest.env" | head -1)"
+    [[ -n "${dir}" ]] || continue
+    if [[ "$(cd "${dir}" 2>/dev/null && pwd -P)" == "${WT_ROOT}" ]]; then
+      sed -n 's/^BACKEND_PORT=//p' "${d}manifest.env" | head -1
+      return 0
+    fi
+  done
+  return 1
+}
+
 # 测试台必须已经起好、能正常响应。本脚本不代为启动：
 # 人工核查用的测试台由合并闸的 gate.py prepare 按 testbench.up（make up）起好。
 require_testbench() {
@@ -186,7 +202,8 @@ already_published() {
 # 与正式版读的 ~/.multica/desktop.json 互不干扰；先写后装也没问题（装不装都由用户点）。
 write_variant_config() {
   mkdir -p "$(dirname "${VARIANT_CONFIG}")"
-  jq -n --arg api "${SERVER_URL}" '{schemaVersion:1, apiUrl:$api}' >"${VARIANT_CONFIG}"
+  jq -n --arg api "${LOCAL_API_URL}" --arg app "${LOCAL_APP_URL}" \
+    '{schemaVersion:1, apiUrl:$api, appUrl:$app}' >"${VARIANT_CONFIG}"
   # A branch package must stay on the exact build under review. The shipped
   # updater UI remains available, but automatic GitHub updates stay off here.
   jq -n '{automaticUpdates:false}' >"${VARIANT_UPDATER_PREFS}"
@@ -199,7 +216,7 @@ print_summary() {
     安装页:   ${INSTALL_URL}/  （电脑浏览器打开，点一下直接下载 dmg）
     点这个包: 「分支测试包」里的「${PACKAGE_NAME}」
     装好后:   启动台里叫「${TEST_DISPLAY_NAME}」，与正式版并存、数据分开
-    它连的是: ${SERVER_URL}  （本 worktree 的测试台）
+    它连的是: ${LOCAL_API_URL}  （本机 worktree 的测试台）
 EOF
 }
 
@@ -214,13 +231,17 @@ mode_publish() {
     exit 1
   fi
 
-  local api_port
+  local api_port backend_port
   api_port="$(discover_api_port)" || { err "找不到本 worktree 的测试台端口（先 make up / make worktree-env）。"; err "也可以显式给 MULTICA_TEST_API_PORT=<端口>。"; exit 1; }
   require_testbench "${api_port}" || exit 1
+  backend_port="$(discover_local_backend_port)" || { err "找不到本 worktree 的后端端口。"; exit 1; }
+  require_testbench "${backend_port}" || exit 1
   ensure_deps
 
   INSTALL_URL="$(hub_install_url)" || exit 1
   SERVER_URL="$("${HUB}" url "${api_port}")"
+  LOCAL_API_URL="http://127.0.0.1:${backend_port}"
+  LOCAL_APP_URL="http://127.0.0.1:${api_port}"
   PACKAGE_NAME="Multica · ${SLUG} · Mac"
   # 分支包不讲版本号：它是临时的，要认的是「哪个分支、哪个 PR」。PR 号问不到就只写分支名。
   local pr_number branch_label
