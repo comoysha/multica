@@ -64,6 +64,7 @@ export {
   ISSUE_SURFACE_VIEW_STORAGE_KEY,
   getIssueSurfaceViewStore,
   clearIssueSurfaceViewState,
+  applyIssueSurfaceViewDefinition,
   pruneIssueSurfaceViewStates,
   getIssueSurfaceViewStateRegistrySnapshot,
 } from "./surface-view-store";
