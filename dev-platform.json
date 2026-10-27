@@ -1,5 +1,5 @@
 {
-  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：工作目录隔离、合并闸、测试台、iOS 主包与手机分支测试包、按改动跑测试。本机正在用的 Multica 跑的是官方镜像、不从这个仓库部署，所以不登记 main.after_sync 和 release.deploy。iOS 主包连本机自己的 Multica：服务器地址是本机私有配置，写在安装页工具的 apps.json（build_settings），不进仓库（仓库公开）。",
+  "_说明": "multica（fork）接入共用底座（~/dev-platform）的配置：工作目录隔离、合并闸、测试台、iOS 主包与手机分支测试包、Mac 主包与桌面分支测试包、按改动跑测试。本机正在用的 Multica 跑的是官方镜像、不从这个仓库部署，所以不登记 main.after_sync 和 release.deploy。iOS 主包连本机自己的 Multica：服务器地址是本机私有配置，写在安装页工具的 apps.json（build_settings），不进仓库（仓库公开）。Mac 主包（multica-mac 同在那里登记）连本机靠 ~/.multica/desktop.json，也不在仓库里。",
   "linear_project": "multica",
   "base_branch": "main",
   "node": "22",
@@ -29,11 +29,23 @@
         "settings": [
           "CURRENT_PROJECT_VERSION={commit_count}"
         ]
+      },
+      "mac": {
+        "hub_id": "multica-mac",
+        "paths": "^apps/desktop/"
       }
     },
     "branch_package": {
-      "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/publish_ios_test_build\\.sh$)",
-      "publish": "scripts/dev/publish_ios_test_build.sh"
+      "platforms": {
+        "ios": {
+          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/publish_ios_test_build\\.sh$)",
+          "publish": "scripts/dev/publish_ios_test_build.sh"
+        },
+        "mac": {
+          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/publish_mac_test_build\\.sh$)",
+          "publish": "scripts/dev/publish_mac_test_build.sh"
+        }
+      }
     }
   },
   "not_needed": {
