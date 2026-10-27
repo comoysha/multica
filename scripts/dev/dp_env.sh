@@ -117,10 +117,10 @@ link_shared() {
 }
 
 # 底座分的端口给网页：合并闸交接里的「测试台」链接就是 http://127.0.0.1:<DP_PORT>，点开要是这条任务的网页。
-# 数据库端口由它推出来（+10000），各工作目录的 DP_PORT 不同，推出来的也不会撞。
+# 数据库端口由它推出来（+20000；+10000 是安装页给手机开的对外端口），各工作目录的 DP_PORT 不同，推出来的也不会撞。
 apply_ports() {
   local port="$1" pg_port db origin
-  pg_port=$((port + 10000))
+  pg_port=$((port + 20000))
   [[ "${pg_port}" != "${LIVE_PG_PORT}" ]] || { err "推出的数据库端口和正在用的 Multica 撞了：${pg_port}"; exit 1; }
   db="$(env_get POSTGRES_DB)"
   origin="http://localhost:${port}"
@@ -152,9 +152,11 @@ cmd_setup() {
 
 cmd_up() {
   # 早先建的工作目录网页还开在别的端口：起测试台时顺手改成底座分的端口。
-  if [[ -n "${DP_PORT:-}" && -f "${ENV_FILE}" && "$(env_get FRONTEND_PORT)" != "${DP_PORT}" ]]; then
-    apply_ports "${DP_PORT}"
-    log "网页改开在底座分的端口 ${DP_PORT}"
+  # make up 里的环境脚本另有一套端口登记，靠 DEV_WEB_PORT 让它也用这个端口。
+  if [[ -n "${DP_PORT:-}" && -f "${ENV_FILE}" ]]; then
+    [[ "$(env_get FRONTEND_PORT)" == "${DP_PORT}" && "$(env_get POSTGRES_PORT)" == "$((DP_PORT + 20000))" ]] || {
+      apply_ports "${DP_PORT}"; log "网页改开在底座分的端口 ${DP_PORT}"; }
+    export DEV_WEB_PORT="${DP_PORT}"
   fi
   guard
   # 先把本工作目录自己的 Postgres 起好、能连上，再交给 make up；
