@@ -355,6 +355,18 @@ rewrite_env_ports() {
   mv "$tmp" "$file"
 }
 
+pin_web_port() {
+  local file="$REPO_ROOT/$1" frontend=$2 tmp
+  tmp="$(mktemp)"
+  sed \
+    -e "s|^FRONTEND_PORT=.*|FRONTEND_PORT=${frontend}|" \
+    -e "s|^FRONTEND_ORIGIN=.*|FRONTEND_ORIGIN=http://localhost:${frontend}|" \
+    -e "s|^MULTICA_APP_URL=.*|MULTICA_APP_URL=http://localhost:${frontend}|" \
+    -e "s|^GOOGLE_REDIRECT_URI=.*|GOOGLE_REDIRECT_URI=http://localhost:${frontend}/auth/callback|" \
+    "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
 # ---------------------------------------------------------------- database ---
 
 admin_database_url() {
@@ -1229,6 +1241,16 @@ Start the rest with 'make up C=api,web', or run 'make up C=daemon' from your own
     save_manifest
     load_manifest "$NAME"
     ok "Registered environment $NAME"
+  fi
+  # DEV_WEB_PORT pins the web port (dev-platform hands each worktree one port and
+  # links its testbench to it), overriding the slot-derived frontend port.
+  if [ -n "${DEV_WEB_PORT:-}" ] && [ "$FRONTEND_PORT" != "$DEV_WEB_PORT" ]; then
+    port_free "$DEV_WEB_PORT" || die "DEV_WEB_PORT $DEV_WEB_PORT is busy: $(describe_port_owner "$DEV_WEB_PORT")."
+    FRONTEND_PORT="$DEV_WEB_PORT"
+    pin_web_port "$ENV_FILE" "$FRONTEND_PORT"
+    load_env_file "$ENV_FILE"
+    save_manifest
+    info "Web port pinned to $FRONTEND_PORT (DEV_WEB_PORT)"
   fi
   release_lock
   trap - EXIT
