@@ -116,10 +116,25 @@ link_shared() {
   for f in ${SHARED_LOCAL_FILES}; do link_exact "${MAIN_ROOT}/${f}" "${ROOT}/${f}"; done
 }
 
+# 底座分的端口给网页：合并闸交接里的「测试台」链接就是 http://127.0.0.1:<DP_PORT>，点开要是这条任务的网页。
+# 数据库端口由它推出来（+10000），各工作目录的 DP_PORT 不同，推出来的也不会撞。
+apply_ports() {
+  local port="$1" pg_port db origin
+  pg_port=$((port + 10000))
+  [[ "${pg_port}" != "${LIVE_PG_PORT}" ]] || { err "推出的数据库端口和正在用的 Multica 撞了：${pg_port}"; exit 1; }
+  db="$(env_get POSTGRES_DB)"
+  origin="http://localhost:${port}"
+  env_set POSTGRES_PORT "${pg_port}"
+  env_set DATABASE_URL "postgres://multica:multica@localhost:${pg_port}/${db}?sslmode=disable"
+  env_set FRONTEND_PORT "${port}"
+  env_set FRONTEND_ORIGIN "${origin}"
+  env_set MULTICA_APP_URL "${origin}"
+  env_set GOOGLE_REDIRECT_URI "${origin}/auth/callback"
+}
+
 cmd_setup() {
   local port="${DP_PORT:-}" project db
   [[ -n "${port}" ]] || { err "底座没有给端口（DP_PORT），无法隔离数据库。"; exit 1; }
-  [[ "${port}" != "${LIVE_PG_PORT}" ]] || { err "分到的端口和正在用的 Multica 撞了：${port}"; exit 1; }
   project="multica-dp-$(slug)"
   [[ "${MAIN_ROOT}" != "${ROOT}" ]] || { err "这是主库，不是工作目录。"; exit 1; }
   refresh_golden
@@ -127,9 +142,8 @@ cmd_setup() {
   [[ -f "${ENV_FILE}" ]] || bash scripts/init-worktree-env.sh "${ENV_FILE}" >/dev/null
   db="$(env_get POSTGRES_DB)"
   env_set COMPOSE_PROJECT_NAME "${project}"
-  env_set POSTGRES_PORT "${port}"
-  env_set DATABASE_URL "postgres://multica:multica@localhost:${port}/${db}?sslmode=disable"
-  log "已隔离：docker 项目 ${project}，数据库端口 ${port}，库名 ${db}"
+  apply_ports "${port}"
+  log "已隔离：docker 项目 ${project}，网页端口 ${port}，数据库端口 $(env_get POSTGRES_PORT)，库名 ${db}"
   if [[ ! -d "${ROOT}/node_modules" ]]; then
     log "安装依赖…"
     npx -y pnpm@10.28.2 install --frozen-lockfile
@@ -137,6 +151,11 @@ cmd_setup() {
 }
 
 cmd_up() {
+  # 早先建的工作目录网页还开在别的端口：起测试台时顺手改成底座分的端口。
+  if [[ -n "${DP_PORT:-}" && -f "${ENV_FILE}" && "$(env_get FRONTEND_PORT)" != "${DP_PORT}" ]]; then
+    apply_ports "${DP_PORT}"
+    log "网页改开在底座分的端口 ${DP_PORT}"
+  fi
   guard
   # 先把本工作目录自己的 Postgres 起好、能连上，再交给 make up；
   # make up 只会在端口上没人应答时才去起容器，这样它连的一定是这个。
@@ -188,6 +207,7 @@ cmd_check() {
   ck "docker 项目名独立（${project:-空}）" '[[ -n "${project}" && "${project}" != "${LIVE_PROJECT}" ]]'
   ck "数据库端口独立（${port:-空}）" '[[ -n "${port}" && "${port}" != "${LIVE_PG_PORT}" ]]'
   ck "副本库名不是正式库（$(env_get POSTGRES_DB)）" '[[ "$(env_get POSTGRES_DB)" != "${LIVE_DB}" ]]'
+  [[ -n "${DP_PORT:-}" ]] && ck "网页开在底座分的端口（${DP_PORT}）" '[[ "$(env_get FRONTEND_PORT)" == "${DP_PORT}" ]]'
   ck "DATABASE_URL 指向本目录的端口" '[[ "$(env_get DATABASE_URL)" == *"localhost:${port}/"* ]]'
   if [[ ${fail} -ne 0 ]]; then echo "dp_env: 自检没通过（${fail} 项）" >&2; return 1; fi
   echo "dp_env: 自检通过"
