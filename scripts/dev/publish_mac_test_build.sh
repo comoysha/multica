@@ -66,6 +66,7 @@ MANIFEST="${WT_ROOT}/.dev-platform-workspace.json"
 STATE_FILE="${WT_ROOT}/data/mac-test-build.json"
 # 分支包自己的 userData 目录（app 名 = productName = TEST_DISPLAY_NAME）。
 VARIANT_CONFIG="${HOME}/Library/Application Support/${TEST_DISPLAY_NAME}/runtime-config.json"
+VARIANT_UPDATER_PREFS="${HOME}/Library/Application Support/${TEST_DISPLAY_NAME}/updater-preferences.json"
 
 # slug 只认身份证（建 worktree 时底座写进去的），不另算。
 SLUG="${DP_SLUG:-}"
@@ -186,6 +187,9 @@ already_published() {
 write_variant_config() {
   mkdir -p "$(dirname "${VARIANT_CONFIG}")"
   jq -n --arg api "${SERVER_URL}" '{schemaVersion:1, apiUrl:$api}' >"${VARIANT_CONFIG}"
+  # A branch package must stay on the exact build under review. The shipped
+  # updater UI remains available, but automatic GitHub updates stay off here.
+  jq -n '{automaticUpdates:false}' >"${VARIANT_UPDATER_PREFS}"
 }
 
 print_summary() {
