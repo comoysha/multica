@@ -40,6 +40,7 @@ import {
 import { ApiError } from "@multica/core/api/client";
 import type { CreateIssueViewRequest, IssueView } from "@multica/core/api/schemas";
 import { projectListOptions } from "@multica/core/projects/queries";
+import { applyIssueSurfaceViewDefinition } from "@multica/core/issues/stores/surface-view-store";
 import { propertyListOptions } from "@multica/core/properties";
 import {
   viewStoreSlice,
@@ -628,6 +629,12 @@ export function SaveViewDialog({
         },
         {
           onSuccess: () => {
+            // The surface only seeds from the definition on first open;
+            // push the saved edit into this user's local copy so it shows.
+            applyIssueSurfaceViewDefinition(`view:${editView.id}`, {
+              ...payload.query,
+              ...payload.display,
+            });
             toast.success(t(($) => $.save_view.toast_updated));
             onOpenChange(false);
           },
