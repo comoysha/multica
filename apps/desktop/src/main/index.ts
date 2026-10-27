@@ -567,13 +567,16 @@ const DEV_APP_NAME = process.env.DESKTOP_APP_SUFFIX
 if (is.dev) {
   app.setName(DEV_APP_NAME);
   app.setPath("userData", join(app.getPath("appData"), DEV_APP_NAME));
-} else {
+} else if (app.getName() === "@multica/desktop") {
   // Pin the production app name in code. Electron's Linux WM_CLASS is set
   // from app.getName() when the first BrowserWindow is realized; the
   // packaged ASAR's package.json `productName` already steers app.getName()
   // to "Multica", but anchoring it here makes WM_CLASS ↔ StartupWMClass
   // (declared in electron-builder.yml) survive a regression in
   // productName / the build pipeline. Must run before requestSingleInstanceLock().
+  // Only pin when productName is missing: branch test builds pass their own
+  // -c.productName ("Multica·分支") so their app name, userData, and
+  // single-instance lock stay separate from the production app.
   app.setName("Multica");
 }
 

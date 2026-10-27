@@ -40,6 +40,7 @@ describe("loadRuntimeConfig", () => {
     await expect(
       loadRuntimeConfig({
         isDev: false,
+        userDataConfigPath: join(dir, "missing-userdata.json"),
         configPath: join(dir, "missing.json"),
         env: {},
       }),
@@ -63,7 +64,12 @@ describe("loadRuntimeConfig", () => {
     );
 
     await expect(
-      loadRuntimeConfig({ isDev: false, configPath, env: {} }),
+      loadRuntimeConfig({
+        isDev: false,
+        userDataConfigPath: join(dir, "missing-userdata.json"),
+        configPath,
+        env: {},
+      }),
     ).resolves.toEqual({
       ok: true,
       config: {
@@ -80,12 +86,67 @@ describe("loadRuntimeConfig", () => {
     const configPath = join(dir, "desktop.json");
     await writeFile(configPath, "{");
 
-    const result = await loadRuntimeConfig({ isDev: false, configPath, env: {} });
+    const result = await loadRuntimeConfig({
+      isDev: false,
+      userDataConfigPath: join(dir, "missing-userdata.json"),
+      configPath,
+      env: {},
+    });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.message).toContain(configPath);
       expect(result.error.message).toContain("Invalid desktop runtime config JSON");
+    }
+  });
+
+  it("prefers a per-variant userData config over the shared desktop.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "multica-desktop-config-"));
+    const userDataConfigPath = join(dir, "runtime-config.json");
+    const configPath = join(dir, "desktop.json");
+    await writeFile(
+      userDataConfigPath,
+      JSON.stringify({ schemaVersion: 1, apiUrl: "https://branch.example.com" }),
+    );
+    await writeFile(
+      configPath,
+      JSON.stringify({ schemaVersion: 1, apiUrl: "https://shared.example.com" }),
+    );
+
+    await expect(
+      loadRuntimeConfig({ isDev: false, userDataConfigPath, configPath, env: {} }),
+    ).resolves.toEqual({
+      ok: true,
+      config: {
+        schemaVersion: 1,
+        apiUrl: "https://branch.example.com",
+        wsUrl: "wss://branch.example.com/ws",
+        appUrl: "https://branch.example.com",
+      },
+    });
+  });
+
+  it("fails closed naming the userData config when it exists but is invalid", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "multica-desktop-config-"));
+    const userDataConfigPath = join(dir, "runtime-config.json");
+    const configPath = join(dir, "desktop.json");
+    await writeFile(userDataConfigPath, "{");
+    await writeFile(
+      configPath,
+      JSON.stringify({ schemaVersion: 1, apiUrl: "https://shared.example.com" }),
+    );
+
+    const result = await loadRuntimeConfig({
+      isDev: false,
+      userDataConfigPath,
+      configPath,
+      env: {},
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain(userDataConfigPath);
+      expect(result.error.message).not.toContain(configPath);
     }
   });
 });
