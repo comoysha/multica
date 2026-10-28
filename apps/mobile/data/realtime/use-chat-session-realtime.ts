@@ -33,6 +33,7 @@ import {
   applyChatDoneToCache,
   applyChatQuickActionsToCache,
   invalidatePendingTask,
+  isChatTaskMessageForSession,
   promotePendingTaskToRunning,
   seedPendingTaskFromQueued,
 } from "./chat-ws-updaters";
@@ -110,14 +111,13 @@ export function useChatSessionRealtime(
           if (!isMine(payload)) return;
           onSessionDeleted?.();
         }),
-        // Live execution trace for any task firing under this chat session.
-        // Per-record gate: `chat_session_id` is optional on the payload
-        // (issue tasks also fire `task:message`), so non-chat traffic is
-        // filtered out here. The cache is keyed on `task_id` rather than
-        // `sessionId`, so completed tasks still render their trace under the
-        // assistant bubble after the live pill unmounts.
+        // Live execution trace for the in-flight task. The payload's
+        // `chat_session_id` is never populated server-side, so the gate falls
+        // back to the pending-task id (see isChatTaskMessageForSession). The
+        // cache is keyed on `task_id`, so completed tasks still render their
+        // trace under the assistant bubble after the live pill unmounts.
         ws.on("task:message", (payload) => {
-          if (!isMine(payload)) return;
+          if (!isChatTaskMessageForSession(qc, sessionId, payload)) return;
           appendTaskMessage(qc, payload);
         }),
         ws.onReconnect(invalidateMine),

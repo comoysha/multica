@@ -140,6 +140,16 @@ export function ChatMessageList({
   const showLiveSection = !!pendingTaskId && !pendingAlreadyPersisted;
   const showLiveTimeline =
     showLiveSection && (liveTaskMessages?.length ?? 0) > 0;
+  // Streaming answer text: `text` frames are deltas, concatenated in seq
+  // order (same merge rule as web's buildTimeline). Rendered as its own
+  // markdown block below the steps fold so the reply is readable while it
+  // streams, matching web's live AssistantMessage row.
+  const liveText = showLiveSection
+    ? (liveTaskMessages ?? [])
+        .filter((m) => m.type === "text")
+        .map((m) => m.content ?? "")
+        .join("")
+    : "";
 
   return (
     // Outer Pressable owns the "tap anywhere outside the selected bubble
@@ -183,6 +193,9 @@ export function ChatMessageList({
           <View style={{ paddingTop: 12 }} className="gap-2">
             {showLiveTimeline ? (
               <ChatTimeline items={liveTaskMessages ?? []} isStreaming />
+            ) : null}
+            {liveText.trim().length > 0 ? (
+              <Markdown content={liveText} compact />
             ) : null}
             <StatusPill
               pendingTask={pendingTask}
