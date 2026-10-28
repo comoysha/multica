@@ -98,6 +98,22 @@ Unit tests do not replace this device validation.
 
 ## First-time setup
 
+### Trusted local installations
+
+For a private iOS or Mac installation that should open without a sign-in form,
+create a personal access token for the intended account and put it in an
+untracked local env file for each client:
+
+```text
+apps/mobile/.env.local:  EXPO_PUBLIC_LOCAL_AUTH_TOKEN=<personal access token>
+apps/desktop/.env.local: VITE_LOCAL_AUTH_TOKEN=<personal access token>
+```
+
+Use a separate token per client so either installation can be revoked alone.
+These values are included in the built app, so distribute such builds only to
+trusted devices. Without the local variable, the normal sign-in flow remains.
+The worktree setup links these private files from the main checkout.
+
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:
 
 ```bash

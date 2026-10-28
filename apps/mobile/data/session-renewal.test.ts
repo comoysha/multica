@@ -113,6 +113,12 @@ describe("mobile session renewal", () => {
     expect(apiMock.setToken).toHaveBeenCalledWith("token-v2");
   });
 
+  it("does not try to renew a personal access token as a session", async () => {
+    keychain.value = "mul_local-token";
+    await renewSessionNow();
+    expect(apiMock.refreshSession).not.toHaveBeenCalled();
+  });
+
   it("leaves the session alone when the server says it is not time yet", async () => {
     apiMock.refreshSession.mockResolvedValue(notYet());
 

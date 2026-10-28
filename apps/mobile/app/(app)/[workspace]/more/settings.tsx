@@ -24,6 +24,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { workspaceListOptions } from "@/data/queries/workspaces";
 import { useAuthStore } from "@/data/auth-store";
+import { localAuthToken } from "@/data/local-auth";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import {
   useColorScheme,
@@ -219,11 +220,13 @@ export default function SettingsPage() {
         </RadioGroup>
       </SectionGroup>
 
-      <View className="pt-2">
-        <Button variant="destructive" onPress={onSignOut}>
-          <Text>{t("account.sign_out")}</Text>
-        </Button>
-      </View>
+      {!localAuthToken && (
+        <View className="pt-2">
+          <Button variant="destructive" onPress={onSignOut}>
+            <Text>{t("account.sign_out")}</Text>
+          </Button>
+        </View>
+      )}
     </ScrollView>
   );
 }

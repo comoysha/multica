@@ -204,7 +204,7 @@ function DesktopInboxBridge() {
   return null;
 }
 
-export function DesktopShell() {
+export function DesktopShell({ hideLogout = false }: { hideLogout?: boolean }) {
   useInternalLinkHandler();
   useNativeNavigationGestures();
   useNavigationInputBindings();
@@ -271,7 +271,7 @@ export function DesktopShell() {
           >
             {slug && <GlobalShortcuts />}
             {slug && <WindowToolbar />}
-            {slug && <AppSidebar topSlot={<SidebarTopSpacer />} searchSlot={<SearchTrigger />} />}
+            {slug && <AppSidebar hideLogout={hideLogout} topSlot={<SidebarTopSpacer />} searchSlot={<SearchTrigger />} />}
             {/* Right side: header + content container */}
             <div className="flex flex-1 min-w-0 flex-col">
               <MainTopBar sidebarMounted={Boolean(slug)} />

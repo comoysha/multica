@@ -143,6 +143,7 @@ export function CoreProvider({
   wsUrl = "ws://localhost:8080/ws",
   storage = defaultStorage,
   cookieAuth,
+  localAuthToken,
   onLogin,
   onLogout,
   onSessionExpired,
@@ -201,6 +202,7 @@ export function CoreProvider({
         onLogin={onLogin}
         storage={storage}
         cookieAuth={cookieAuth}
+        localAuthToken={localAuthToken}
         identity={identity}
       >
         {/* Desktop's reporter owns both activity and runtime state so it must

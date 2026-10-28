@@ -13,6 +13,7 @@ import { api } from "@/data/api";
 import { maybeRenewSession } from "@/data/session-renewal";
 import { queryClient } from "@/data/query-client";
 import { useAuthStore } from "@/data/auth-store";
+import { localAuthToken } from "@/data/local-auth";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import { SessionActivityBoundary } from "@/components/auth/session-activity-boundary";
 import { LightboxProvider, prewarmHighlighter } from "@/lib/markdown";
@@ -45,7 +46,11 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
           await useAuthStore.getState().logout();
           await useWorkspaceStore.getState().clear();
           qc.clear();
-          router.replace("/login");
+          if (localAuthToken) {
+            router.replace("/");
+          } else {
+            router.replace("/login");
+          }
           // Reset on next tick so a fresh session can hit 401 again later
           // without being silently swallowed.
           setTimeout(() => {

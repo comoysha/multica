@@ -80,11 +80,13 @@ function renderInitializer({
   storage = makeStorage({ multica_token: "token-1" }),
   cookieAuth = false,
   platform = "desktop",
+  localAuthToken,
 }: {
   api: ApiClient;
   storage?: StorageAdapter;
   cookieAuth?: boolean;
   platform?: "desktop" | "web";
+  localAuthToken?: string;
 }) {
   const onLogin = vi.fn();
   const onLogout = vi.fn();
@@ -100,6 +102,7 @@ function renderInitializer({
     <QueryClientProvider client={queryClient}>
       <AuthInitializer
         cookieAuth={cookieAuth}
+        localAuthToken={localAuthToken}
         identity={{ platform }}
         onLogin={onLogin}
         storage={storage}
@@ -122,6 +125,17 @@ afterEach(() => {
 });
 
 describe("AuthInitializer recovery", () => {
+  it("uses a configured local token without showing the login flow", async () => {
+    const storage = makeStorage();
+    const api = makeApi();
+    renderInitializer({ api, storage, localAuthToken: "mul_local-test" });
+
+    await waitFor(() => expect(useAuthStore.getState().status).toBe("authenticated"));
+    expect(storage.snapshot().multica_token).toBe("mul_local-test");
+    expect(api.setToken).toHaveBeenCalledWith("mul_local-test");
+    expect(api.getMe).toHaveBeenCalledOnce();
+  });
+
   it("publishes the API origin used by persisted attachment links", async () => {
     const api = makeApi({
       getConfig: vi.fn().mockResolvedValue({

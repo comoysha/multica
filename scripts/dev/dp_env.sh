@@ -13,7 +13,7 @@
 # setup 用 pg_dump 只读导出一份快照到主库的 data/golden/multica.dump（导不出来就沿用旧快照），
 # 每个工作目录软链这份快照，在自己的容器 / 端口里克隆出副本库。正式库只读，从不写。
 #
-# 软链：data/golden 和主库里的本地配置（apps/mobile/.env.*.local）从主库软链过来，改一处全部生效。
+# Shared local client configuration and data/golden are symlinked from the main checkout.
 # 不软链：node_modules（构建工具不认跨根软链）、.env.worktree（本工作目录的副本库配置，软链会让两个
 # 工作目录写同一个库）。根目录的 .env 也不软链：Makefile 见到 .env 就不读 .env.worktree，隔离会失效。
 #
@@ -43,7 +43,7 @@ ENV_FILE="${ROOT}/.env.worktree"
 MAIN_ROOT="$(dirname "$(cd "${ROOT}" && cd "$(git rev-parse --git-common-dir)" && pwd -P)")"
 GOLDEN_DIR="${MAIN_ROOT}/data/golden"
 GOLDEN="${GOLDEN_DIR}/multica.dump"
-SHARED_LOCAL_FILES="apps/mobile/.env.development.local apps/mobile/.env.staging.local apps/mobile/.env.production.local"
+SHARED_LOCAL_FILES="apps/mobile/.env.local apps/mobile/.env.development.local apps/mobile/.env.staging.local apps/mobile/.env.production.local apps/desktop/.env.local"
 
 env_get() { [[ -f "${ENV_FILE}" ]] && sed -n "s/^$1=//p" "${ENV_FILE}" | tail -1; }
 
