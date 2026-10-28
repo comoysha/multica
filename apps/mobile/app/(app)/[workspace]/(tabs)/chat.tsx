@@ -238,6 +238,24 @@ export default function ChatTab() {
     setActiveSessionId(null);
   });
 
+  // Fallback refresh while a task is in flight. WS events drive the instant
+  // updates, but a socket that dies silently (iOS suspending the app, proxy
+  // hiccups) must not strand the session on the status line forever — every
+  // cache here is staleTime:Infinity, so without a lost chat:done the
+  // assistant reply only appeared after a full app restart (MU-363). Scoped
+  // to in-flight tasks so idle sessions never poll.
+  const taskInFlight = !!pendingTask?.task_id;
+  useEffect(() => {
+    if (!taskInFlight || !activeSessionId) return;
+    const id = setInterval(() => {
+      qc.invalidateQueries({
+        queryKey: chatKeys.pendingTask(activeSessionId),
+      });
+      qc.invalidateQueries({ queryKey: chatKeys.messages(activeSessionId) });
+    }, 5000);
+    return () => clearInterval(id);
+  }, [taskInFlight, activeSessionId, qc]);
+
   // Exit text-selection mode whenever the chat tab loses focus. Expo
   // Router bottom tabs stay mounted across tab switches, so a plain
   // useEffect cleanup wouldn't fire — useFocusEffect is the navigation-

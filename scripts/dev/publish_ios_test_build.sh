@@ -167,18 +167,18 @@ require_testbench() {
   fi
 }
 
-# 原生工程（ios/）是 Expo prebuild 生成的、不进 git。第一次发包前先把工程
-# 生成出来并装好 CocoaPods（这两件都很慢）；hub 侧的 --prebuild 每次重刷 config plugins 并补装 Pods（增量，较快）
+# 原生工程（ios/）是 Expo prebuild 生成的、不进 git。每次发包都按发包变体重新生成：
+# worktree 里可能残留别的变体的工程（比如 expo run:ios 生成的 dev 包，workspace 名是
+# MulticaDev 而非 MulticaStaging），而 workspace 名要在 hub --prebuild 重刷之前取好，
+# 不先按同一变体刷一次，xcodebuild 会拿到一个不存在的工程路径。
 # config plugins 重刷（秒级），保证 app.config.ts 的改动每次都生效。
 ensure_native_project() {
   if [[ ! -d "${WT_ROOT}/node_modules" ]]; then
     log "首次发包，先安装依赖（pnpm install）…"
     npx -y pnpm@10.28.2 install --frozen-lockfile
   fi
-  if [[ ! -d "${MOBILE_DIR}/ios" || ! -d "${MOBILE_DIR}/ios/Pods" ]]; then
-    log "首次发包，生成 iOS 原生工程并装 CocoaPods（要几分钟）…"
-    (cd "${MOBILE_DIR}" && APP_ENV="${APP_VARIANT}" EXPO_BUNDLE_IDENTIFIER_STAGING="${TEST_BUNDLE_ID}" npx -y pnpm@10.28.2 exec expo prebuild -p ios)
-  fi
+  log "按 ${APP_VARIANT} 变体生成 iOS 原生工程并装 CocoaPods…"
+  (cd "${MOBILE_DIR}" && APP_ENV="${APP_VARIANT}" EXPO_BUNDLE_IDENTIFIER_STAGING="${TEST_BUNDLE_ID}" npx -y pnpm@10.28.2 exec expo prebuild -p ios)
 }
 
 # 同一个提交、同一个测试台地址已经发过，且安装页上还在 → 不重复打包（打一次要几十分钟）。
