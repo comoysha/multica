@@ -1,50 +1,47 @@
 /**
- * View store for the workspace-wide Issues page (`more/issues.tsx`).
+ * View store for the workspace Issues list (the second tab, and More →
+ * Issues). Built-in tabs are `all / members / agents`. A saved view, when
+ * open, replaces that tab: its status / priority / assignee-kind come from
+ * the view definition, not from this store's scope.
  *
- * Shape mirrors `useMyIssuesViewStore` plus a `scope` field — workspace
- * Issues has `all / members / agents` scope tabs (see web
- * `packages/views/issues/components/issues-page.tsx:32-94`), while
- * My Issues has its own `assigned / created / agents` scopes.
+ * `statusFilters` / `priorityFilters` are extra constraints the filter
+ * sheet layers on top of the open tab or view. Empty array = no extra
+ * constraint. `clearFilters` clears only those extras — it does not leave
+ * the open view. `resetForWorkspace` also drops the open view, because
+ * view ids belong to one workspace.
  *
- * The `scope` filter is **client-side** on `assignee_type` — see
- * `more/issues.tsx`'s `scopedIssues` derivation. Server param stays unset
- * so the cache key (`issueKeys.list(wsId)`) and WS realtime invalidation
- * (`useIssuesRealtime`) don't have to know about scope.
- *
- * `IssuesScope` is defined locally rather than imported from
- * `@multica/core/issues/stores/issues-scope-store` — mobile only
- * `import type` from `@multica/core/types/*` per Sharing Principles, and
- * the union is small enough that a duplicated literal is preferable to a
- * cross-package type import hop.
- *
- * Empty filter array = "show all" (matches web's predicate semantics in
- * packages/views/issues/utils/filter.ts).
- *
- * No persist middleware — filters are session-scoped. `clearFilters`
- * deliberately does NOT reset `scope` so a workspace switch keeps the
- * user on the same scope tab (web's URL-driven scope reset is incidental
- * to its routing model, not an invariant mobile should mirror).
+ * Scope and the open view are client-side. The list query stays
+ * `issueKeys.list(wsId)` so realtime invalidation is unchanged.
  */
 import { create } from "zustand";
 import type { IssuePriority, IssueStatus } from "@multica/core/types";
+import type { WorkspaceActorKind } from "@/lib/issue-view-bar";
 
-export type IssuesScope = "all" | "members" | "agents";
+export type IssuesScope = WorkspaceActorKind;
 
 interface IssuesViewState {
   scope: IssuesScope;
+  /** Open saved view. Null means a built-in tab (`scope`) is showing. */
+  activeViewId: string | null;
   statusFilters: IssueStatus[];
   priorityFilters: IssuePriority[];
-  setScope: (scope: IssuesScope) => void;
+  selectBuiltin: (scope: IssuesScope) => void;
+  selectView: (id: string) => void;
+  setActiveViewId: (id: string | null) => void;
   toggleStatusFilter: (status: IssueStatus) => void;
   togglePriorityFilter: (priority: IssuePriority) => void;
   clearFilters: () => void;
+  resetForWorkspace: () => void;
 }
 
 export const useIssuesViewStore = create<IssuesViewState>((set) => ({
   scope: "all",
+  activeViewId: null,
   statusFilters: [],
   priorityFilters: [],
-  setScope: (scope) => set({ scope }),
+  selectBuiltin: (scope) => set({ scope, activeViewId: null }),
+  selectView: (id) => set({ activeViewId: id }),
+  setActiveViewId: (id) => set({ activeViewId: id }),
   toggleStatusFilter: (status) =>
     set((state) => ({
       statusFilters: state.statusFilters.includes(status)
@@ -58,4 +55,6 @@ export const useIssuesViewStore = create<IssuesViewState>((set) => ({
         : [...state.priorityFilters, priority],
     })),
   clearFilters: () => set({ statusFilters: [], priorityFilters: [] }),
+  resetForWorkspace: () =>
+    set({ statusFilters: [], priorityFilters: [], activeViewId: null }),
 }));

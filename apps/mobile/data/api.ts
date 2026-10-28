@@ -73,9 +73,14 @@ import {
   ListIssueStatusesResponseSchema,
   TimelineEntriesSchema,
   WorkspaceSubscriptionSummarySchema,
+  EMPTY_ISSUE_VIEW_PREFERENCE,
+  IssueViewListSchema,
+  IssueViewPreferenceSchema,
 } from "@multica/core/api/schemas";
 import type {
   AppConfigResponse,
+  IssueView,
+  IssueViewPreference,
   RefreshSessionResponse,
 } from "@multica/core/api/schemas";
 import {
@@ -651,6 +656,40 @@ class ApiClient {
     return parseWithFallback(raw, ListIssuesResponseSchema, EMPTY_LIST_ISSUES_RESPONSE, {
       endpoint: "GET /api/issues",
     });
+  }
+
+  // Saved issue views for the workspace Issues bar. A malformed list degrades
+  // to [] so the bar still shows the built-in tabs.
+  async listIssueViews(
+    params: { scope_type: string; scope_id?: string | null },
+    opts?: { signal?: AbortSignal },
+  ): Promise<IssueView[]> {
+    const qs = new URLSearchParams({ scope_type: params.scope_type });
+    if (params.scope_id) qs.set("scope_id", params.scope_id);
+    const raw = await this.fetch<unknown>(`/api/issue-views?${qs.toString()}`, {
+      signal: opts?.signal,
+    });
+    return parseWithFallback(raw, IssueViewListSchema, [], {
+      endpoint: "GET /api/issue-views",
+    });
+  }
+
+  async getIssueViewPreference(
+    params: { scope_type: string; scope_id?: string | null },
+    opts?: { signal?: AbortSignal },
+  ): Promise<IssueViewPreference> {
+    const qs = new URLSearchParams({ scope_type: params.scope_type });
+    if (params.scope_id) qs.set("scope_id", params.scope_id);
+    const raw = await this.fetch<unknown>(
+      `/api/issue-view-preferences?${qs.toString()}`,
+      { signal: opts?.signal },
+    );
+    return parseWithFallback(
+      raw,
+      IssueViewPreferenceSchema,
+      EMPTY_ISSUE_VIEW_PREFERENCE,
+      { endpoint: "GET /api/issue-view-preferences" },
+    );
   }
 
   /** Workspace-wide issue search. Backend `GET /api/issues/search` with
