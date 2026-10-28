@@ -90,6 +90,7 @@ export async function renewSessionNow(): Promise<void> {
       // nothing.
       const startedFrom = await getToken();
       if (!startedFrom || sessionEpochChanged(epochAtStart)) return;
+      if (startedFrom.startsWith("mul_")) return;
 
       const result = await api.refreshSession();
       // A response that carries no cadence is not a usable answer. The schema

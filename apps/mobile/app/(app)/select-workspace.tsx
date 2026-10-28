@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CardPressable } from "@/components/ui/card";
 import { workspaceListOptions } from "@/data/queries/workspaces";
 import { useAuthStore } from "@/data/auth-store";
+import { localAuthToken } from "@/data/local-auth";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import { useT } from "@/lib/i18n";
 
@@ -81,11 +82,13 @@ export default function SelectWorkspace() {
           )}
         </View>
 
-        <View className="pt-4 border-t border-border">
-          <Button variant="outline" onPress={() => logout()}>
-            <Text>{t("actions.sign_out")}</Text>
-          </Button>
-        </View>
+        {!localAuthToken && (
+          <View className="pt-4 border-t border-border">
+            <Button variant="outline" onPress={() => logout()}>
+              <Text>{t("actions.sign_out")}</Text>
+            </Button>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

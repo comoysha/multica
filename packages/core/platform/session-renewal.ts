@@ -116,6 +116,7 @@ export function createSessionRenewal({
     // write anything back.
     const startedFrom = storage.getItem(TOKEN_STORAGE_KEY);
     if (!startedFrom) return;
+    if (startedFrom.startsWith("mul_")) return;
 
     inFlight = api
       .refreshSession()

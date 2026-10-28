@@ -85,6 +85,12 @@ describe("createSessionRenewal", () => {
     expect(h.api.setToken).toHaveBeenCalledWith("token-v2");
   });
 
+  it("does not try to renew a personal access token as a session", async () => {
+    const h = makeHarness("mul_local-token");
+    await renewalFor(h).renewNow();
+    expect(h.api.refreshSession).not.toHaveBeenCalled();
+  });
+
   // The common answer. Asking before the window opens must change nothing —
   // in particular it must not clear or rewrite the token in play.
   it("leaves the session alone when the server says it is not time yet", async () => {

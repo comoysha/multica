@@ -34,6 +34,7 @@ export function AuthInitializer({
   onLogin,
   storage = defaultStorage,
   cookieAuth,
+  localAuthToken,
   identity,
 }: {
   children: ReactNode;
@@ -43,6 +44,7 @@ export function AuthInitializer({
   // callbacks live.
   storage?: StorageAdapter;
   cookieAuth?: boolean;
+  localAuthToken?: string;
   identity?: ClientIdentity;
 }) {
   const qc = useQueryClient();
@@ -274,7 +276,11 @@ export function AuthInitializer({
       inFlight = true;
 
       try {
-        const user = await api.getMe();
+        if (localAuthToken) {
+          storage.setItem("multica_token", localAuthToken);
+          api.setToken(localAuthToken);
+        }
+        const user: User = await api.getMe();
         if (cancelled) return;
 
         // Identity verification and workspace loading are separate concerns
@@ -286,7 +292,7 @@ export function AuthInitializer({
         warmWorkspaces();
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof ApiError && err.status === 401) {
+        if (!localAuthToken && err instanceof ApiError && err.status === 401) {
           rejectSession();
           return;
         }
@@ -327,7 +333,7 @@ export function AuthInitializer({
 
     if (!cookieAuth) {
       const token = storage.getItem("multica_token");
-      if (!token) {
+      if (!token && !localAuthToken) {
         // No credential to verify. Same published state as a rejected one,
         // and the same teardown — which on desktop is what keeps a daemon
         // running across the restart after an expiry, instead of the app

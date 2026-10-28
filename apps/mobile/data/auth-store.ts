@@ -15,6 +15,7 @@ import { api, ApiError } from "./api";
 import { clearToken, getToken, setToken } from "./secure-storage";
 import { invalidateSessionEpoch } from "./session-epoch";
 import { useWorkspaceStore } from "./workspace-store";
+import { localAuthToken } from "./local-auth";
 
 interface AuthState {
   user: User | null;
@@ -33,15 +34,20 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
 
   initialize: async () => {
+    set({ isLoading: true });
     // Restore the persisted workspace slug alongside the auth token so the
     // entry redirect (app/index.tsx) can route directly to the last-used
     // workspace without flashing /select-workspace.
     await useWorkspaceStore.getState().restoreSlug();
 
-    const token = await getToken();
+    const storedToken = await getToken();
+    const token = localAuthToken ?? storedToken;
     if (!token) {
       set({ isLoading: false });
       return;
+    }
+    if (localAuthToken && storedToken !== localAuthToken) {
+      await setToken(localAuthToken);
     }
     api.setToken(token);
     try {
@@ -50,7 +56,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (err) {
       // Only clear token on a genuine 401. Network blips / 5xx keep the
       // token so the next launch (or a manual refresh) can retry.
-      if (err instanceof ApiError && err.status === 401) {
+      if (!localAuthToken && err instanceof ApiError && err.status === 401) {
         // Synchronous first, before the awaited delete: anything already
         // in flight has to learn the credential is dead now, not once the
         // Keychain write lands.

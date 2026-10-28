@@ -35,6 +35,11 @@ import {
   type SessionTeardown,
 } from "./platform/session-teardown";
 
+const configuredLocalAuthToken = import.meta.env.VITE_LOCAL_AUTH_TOKEN?.trim();
+const localAuthToken = configuredLocalAuthToken?.startsWith("mul_")
+  ? configuredLocalAuthToken
+  : undefined;
+
 // BCP-47 region tags for the <html lang> attribute, mirroring
 // apps/web/app/layout.tsx HTML_LANG. index.html ships a static lang="en";
 // we sync it to the resolved locale at boot so screen readers announce the
@@ -100,7 +105,7 @@ function IssueWindowContent() {
     );
   }
 
-  return user ? <IssueWindow context={context} /> : <DesktopLoginPage />;
+  return user ? <IssueWindow context={context} /> : localAuthToken ? <DesktopAuthRecoveryPage /> : <DesktopLoginPage />;
 }
 
 function AppContent() {
@@ -336,7 +341,7 @@ function AppContent() {
     );
   }
 
-  return user ? <DesktopShell /> : <DesktopLoginPage />;
+  return user ? <DesktopShell hideLogout={!!localAuthToken} /> : localAuthToken ? <DesktopAuthRecoveryPage /> : <DesktopLoginPage />;
 }
 
 function BlockingRuntimeConfigError({ message }: { message: string }) {
@@ -464,6 +469,7 @@ export default function App() {
             windowContext.kind === "main" ? handleSessionExpired : undefined
           }
           identity={identity}
+          localAuthToken={localAuthToken}
           locale={locale}
           resources={resources}
           localeAdapter={localeAdapter}
