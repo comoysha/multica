@@ -215,6 +215,9 @@ mode_publish() {
   local api_port
   api_port="$(discover_api_port)" || { err "找不到本 worktree 的测试台端口（先 make up / make worktree-env）。"; err "也可以显式给 MULTICA_TEST_API_PORT=<端口>。"; exit 1; }
   require_testbench "${api_port}" || exit 1
+  # Worktree databases do not share the main installation's PATs. The linked
+  # apps/mobile/.env.local must not lock a branch build into an invalid token.
+  export EXPO_PUBLIC_LOCAL_AUTH_TOKEN=""
   ensure_native_project
 
   # Expo 工程的 scheme / workspace 名是 prebuild 按 app.config.ts 生成的，不硬编码。
