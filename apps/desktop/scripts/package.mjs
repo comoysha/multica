@@ -19,8 +19,10 @@
 //
 // Extra CLI args after `pnpm package --` are forwarded to electron-builder
 // unchanged (e.g. `--mac --arm64`). Mac builds require a Developer ID
-// Application identity by default. Prefer CSC_LINK + CSC_KEY_PASSWORD to
-// sign with a team-provided certificate in an isolated temporary keychain.
+// Application identity by default. The configured Gunma identity is shared
+// by branch and release builds; MAC_SIGNING_TEAM_ID and
+// MAC_SIGNING_IDENTITY_SHA1 can select another installed identity. Use
+// CSC_LINK + CSC_KEY_PASSWORD for an isolated certificate bundle.
 // Use `--ad-hoc` only for a local test build.
 //
 // The `normalizeGitVersion`, `deriveVersion`, and `DESCRIBE_ARGS` exports let
@@ -35,6 +37,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(here, "..");
 const bundleCliScript = resolve(here, "bundle-cli.mjs");
+const DEFAULT_MAC_SIGNING_TEAM_ID = "L72JZDVM4S";
+const DEFAULT_MAC_SIGNING_IDENTITY_SHA1 = "D05B08C237921D4FD69B5C5F3288A33E6AF625E1";
 
 const PLATFORM_CONFIG = {
   mac: {
@@ -397,7 +401,7 @@ export function teamCertificateEnvironment(env) {
 
 export function macSigningEnvironment(
   buildMatrix,
-  { adHoc, env = process.env, hostPlatform = process.platform },
+  { adHoc, env = process.env, hostPlatform = process.platform, findIdentities = spawnSync },
 ) {
   if (!buildMatrix.some((target) => target.platform === "mac")) return { ...env };
 
@@ -415,20 +419,25 @@ export function macSigningEnvironment(
         "Use --ad-hoc only for an unsigned local test build.",
     );
   }
-  if (!env.MAC_SIGNING_TEAM_ID?.trim()) {
-    throw new Error(
-      "[package] MAC_SIGNING_TEAM_ID must be set to the Apple team that owns this app's Developer ID certificate. " +
-        "Set the team ID that owns the selected Developer ID certificate.",
-    );
+  const signingEnv = {
+    ...env,
+    MAC_SIGNING_TEAM_ID: env.MAC_SIGNING_TEAM_ID?.trim() || DEFAULT_MAC_SIGNING_TEAM_ID,
+  };
+  if (signingEnv.CSC_LINK) {
+    return teamCertificateEnvironment(signingEnv);
   }
-  if (env.CSC_LINK) {
-    return teamCertificateEnvironment(env);
+  if (
+    signingEnv.MAC_SIGNING_TEAM_ID === DEFAULT_MAC_SIGNING_TEAM_ID &&
+    !signingEnv.MAC_SIGNING_IDENTITY_SHA1?.trim() &&
+    !signingEnv.CSC_NAME?.trim()
+  ) {
+    signingEnv.MAC_SIGNING_IDENTITY_SHA1 = DEFAULT_MAC_SIGNING_IDENTITY_SHA1;
   }
 
   // Select a Developer ID Application cert from this Mac's keychain and pass
   // it explicitly, so an inherited CSC_IDENTITY_AUTO_DISCOVERY=false cannot
   // silently change the signature.
-  const result = spawnSync(
+  const result = findIdentities(
     "security",
     ["find-identity", "-v", "-p", "codesigning"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
@@ -441,7 +450,7 @@ export function macSigningEnvironment(
     );
   }
 
-  return macSigningEnvironmentForIdentities(env, output);
+  return macSigningEnvironmentForIdentities(signingEnv, output);
 }
 
 export function macSigningEnvironmentForIdentities(env, output) {

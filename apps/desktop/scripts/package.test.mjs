@@ -8,6 +8,7 @@ import {
   deriveVersion,
   DESCRIBE_ARGS,
   envWithLocalBins,
+  macSigningEnvironment,
   macSigningEnvironmentForIdentities,
   normalizeGitVersion,
   notarizationConfig,
@@ -32,6 +33,49 @@ const SAME_NAME_IDENTITIES = [GUNMA_IDENTITY_A, GUNMA_IDENTITY_B, GUNMA_IDENTITY
       ` ${index + 1}) ${fingerprint} "Developer ID Application: Gunma Network Co., Ltd (${GUNMA_TEAM_ID})"`,
   )
   .join("\n");
+
+describe("macSigningEnvironment", () => {
+  const macTarget = [{ platform: "mac", arch: "arm64" }];
+  const options = {
+    adHoc: false,
+    hostPlatform: "darwin",
+    findIdentities: () => ({ status: 0, stdout: SAME_NAME_IDENTITIES }),
+  };
+
+  it("uses the chosen Gunma identity for normal builds without environment settings", () => {
+    expect(macSigningEnvironment(macTarget, { ...options, env: {} })).toMatchObject({
+      MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID,
+      MAC_SIGNING_IDENTITY_SHA1: GUNMA_IDENTITY_A,
+      CSC_NAME: GUNMA_IDENTITY_A,
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+  });
+
+  it("fails if the chosen identity is unavailable instead of selecting a different certificate", () => {
+    expect(() =>
+      macSigningEnvironment(macTarget, {
+        ...options,
+        env: {},
+        findIdentities: () => ({
+          status: 0,
+          stdout: SAME_NAME_IDENTITIES.split("\n").slice(1).join("\n"),
+        }),
+      }),
+    ).toThrow(/MAC_SIGNING_IDENTITY_SHA1 does not match/);
+  });
+
+  it("allows an explicitly selected team and fingerprint to override the defaults", () => {
+    const otherHash = "A".repeat(40);
+    const output = ` 1) ${otherHash} "Developer ID Application: Other Team (OTHER12345)"`;
+    expect(
+      macSigningEnvironment(macTarget, {
+        ...options,
+        env: { MAC_SIGNING_TEAM_ID: "OTHER12345", MAC_SIGNING_IDENTITY_SHA1: otherHash },
+        findIdentities: () => ({ status: 0, stdout: output }),
+      }),
+    ).toMatchObject({ MAC_SIGNING_TEAM_ID: "OTHER12345", CSC_NAME: otherHash });
+  });
+});
 
 describe("macSigningEnvironmentForIdentities", () => {
   it("requires a fingerprint when several valid identities have the same name", () => {
