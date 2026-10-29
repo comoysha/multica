@@ -9,10 +9,75 @@ import {
   DESCRIBE_ARGS,
   envWithLocalBins,
   normalizeGitVersion,
+  notarizationConfig,
   parsePackageArgs,
   resolveBuildMatrix,
   stripLeadingSeparator,
+  teamCertificateEnvironment,
 } from "./package.mjs";
+
+describe("teamCertificateEnvironment", () => {
+  it("selects the configured team certificate from an isolated certificate bundle", () => {
+    expect(
+      teamCertificateEnvironment({
+        CSC_LINK: "/secure/efolix.p12",
+        CSC_KEY_PASSWORD: "secret",
+        CSC_NAME: "Developer ID Application: Efolix (TEAM123456)",
+        MAC_SIGNING_TEAM_ID: "TEAM123456",
+        CSC_IDENTITY_AUTO_DISCOVERY: "false",
+      }),
+    ).toMatchObject({
+      CSC_LINK: "/secure/efolix.p12",
+      CSC_KEY_PASSWORD: "secret",
+      CSC_NAME: "Efolix (TEAM123456)",
+      MAC_SIGNING_TEAM_ID: "TEAM123456",
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+  });
+
+  it("rejects an absent or mismatched expected Apple team", () => {
+    expect(() =>
+      teamCertificateEnvironment({
+        CSC_LINK: "/secure/team.p12",
+        CSC_NAME: "Other Company (OTHER12345)",
+        MAC_SIGNING_TEAM_ID: "TEAM123456",
+      }),
+    ).toThrow(/MAC_SIGNING_TEAM_ID/);
+  });
+});
+
+describe("notarizationConfig", () => {
+  it("enables notarization with an App Store Connect API key", () => {
+    expect(
+      notarizationConfig(
+        {
+          APPLE_API_KEY: "/secure/AuthKey.p8",
+          APPLE_API_KEY_ID: "KEY1234567",
+          APPLE_API_ISSUER: "issuer-id",
+        },
+        false,
+        true,
+      ),
+    ).toEqual({ disableMacNotarize: false });
+  });
+
+  it("accepts Apple ID notarization and rejects incomplete credentials", () => {
+    expect(
+      notarizationConfig(
+        {
+          APPLE_ID: "release@example.test",
+          APPLE_APP_SPECIFIC_PASSWORD: "app-specific-password",
+          APPLE_TEAM_ID: "TEAM123456",
+        },
+        false,
+        true,
+      ),
+    ).toEqual({ disableMacNotarize: false });
+    expect(() =>
+      notarizationConfig({ APPLE_API_KEY_ID: "KEY1234567" }, false, true),
+    ).toThrow(/APPLE_API_KEY, APPLE_API_ISSUER/);
+  });
+});
 
 describe("normalizeGitVersion", () => {
   it("returns null for empty / nullish input", () => {

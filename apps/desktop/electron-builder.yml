@@ -51,10 +51,11 @@ mac:
   # Naming scheme: multica-desktop-<version>-<platform>-<arch>.<ext>
   # so the filename alone surfaces kind, version, platform, and CPU arch.
   artifactName: multica-desktop-${version}-mac-${arch}.${ext}
-  # Notarize via notarytool. The package script enables this only when all
-  # three credentials are present: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
-  # and APPLE_TEAM_ID. A Developer ID Application certificate is required
-  # for normal macOS builds; `--ad-hoc` is reserved for local testing.
+  # Fail instead of silently shipping an unsigned app when signing credentials
+  # are missing or invalid. Notarization uses either APPLE_API_KEY,
+  # APPLE_API_KEY_ID, APPLE_API_ISSUER or APPLE_ID,
+  # APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+  forceCodeSigning: true
   notarize: true
 dmg:
   artifactName: multica-desktop-${version}-mac-${arch}.${ext}

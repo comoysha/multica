@@ -19,8 +19,9 @@
 //
 // Extra CLI args after `pnpm package --` are forwarded to electron-builder
 // unchanged (e.g. `--mac --arm64`). Mac builds require a Developer ID
-// Application identity by default. Use `--ad-hoc` only for a local test
-// build that does not need Gatekeeper trust or notarization.
+// Application identity by default. Prefer CSC_LINK + CSC_KEY_PASSWORD to
+// sign with a team-provided certificate in an isolated temporary keychain.
+// Use `--ad-hoc` only for a local test build.
 //
 // The `normalizeGitVersion`, `deriveVersion`, and `DESCRIBE_ARGS` exports let
 // tests cover version derivation both as a pure string transform and as the
@@ -374,6 +375,26 @@ export function builderArgsForTarget(
   return builderArgs;
 }
 
+export function teamCertificateEnvironment(env) {
+  const teamId = env.MAC_SIGNING_TEAM_ID?.trim();
+  const configuredName = env.CSC_NAME?.trim() ?? "";
+  const certificateName = configuredName.replace(
+    /^Developer ID Application:\s*/,
+    "",
+  );
+  if (!teamId || !certificateName || !certificateName.includes(`(${teamId})`)) {
+    throw new Error(
+      "[package] team certificate signing requires CSC_NAME to identify the Developer ID Application certificate and MAC_SIGNING_TEAM_ID to match its Apple team. " +
+        "Set these with CSC_LINK and CSC_KEY_PASSWORD using efolix's signing credentials.",
+    );
+  }
+  return {
+    ...env,
+    CSC_NAME: certificateName,
+    CSC_IDENTITY_AUTO_DISCOVERY: "true",
+  };
+}
+
 function macSigningEnvironment(
   buildMatrix,
   { adHoc, env = process.env, hostPlatform = process.platform },
@@ -394,11 +415,14 @@ function macSigningEnvironment(
         "Use --ad-hoc only for an unsigned local test build.",
     );
   }
-  if (env.CSC_LINK) {
+  if (!env.MAC_SIGNING_TEAM_ID?.trim()) {
     throw new Error(
-      "[package] CSC_LINK is set, but macOS packages use the Developer ID Application certificate installed in Keychain Access. " +
-        "Unset CSC_LINK or use --ad-hoc for a local test build.",
+      "[package] MAC_SIGNING_TEAM_ID must be set to the Apple team that owns this app's Developer ID certificate. " +
+        "Use efolix's team ID; signing with another team's certificate is not allowed for this app.",
     );
+  }
+  if (env.CSC_LINK) {
+    return teamCertificateEnvironment(env);
   }
 
   // Select a Developer ID Application cert from this Mac's keychain and pass
@@ -421,51 +445,78 @@ function macSigningEnvironment(
     /^\s*\d+\)\s+([A-F0-9]{40})\s+"(Developer ID Application:[^"]+)"/gm,
   );
   const available = [...identities];
+  const teamId = env.MAC_SIGNING_TEAM_ID.trim();
+  const teamIdentities = available.filter(([, , name]) =>
+    name.includes(`(${teamId})`),
+  );
   const requestedName = env.CSC_NAME?.replace(/^Developer ID Application:\s*/, "");
   const selected = env.CSC_NAME
-    ? available.find(
+    ? teamIdentities.find(
         ([, hash, name]) =>
           hash.toLowerCase() === env.CSC_NAME.toLowerCase() ||
           name === env.CSC_NAME ||
           name.replace(/^Developer ID Application:\s*/, "") === requestedName,
       )
-    : available[0];
+    : teamIdentities[0];
   if (!selected) {
     const detail = env.CSC_NAME
-      ? `CSC_NAME '${env.CSC_NAME}' does not match an installed Developer ID Application certificate.`
-      : "No Developer ID Application certificate is installed in the keychain.";
+      ? `CSC_NAME '${env.CSC_NAME}' does not match an installed Developer ID Application certificate for team ${teamId}.`
+      : `No Developer ID Application certificate for team ${teamId} is installed in the keychain.`;
     throw new Error(
       `[package] ${detail} Install the certificate and private key in Keychain Access, or use --ad-hoc for a local test build. ` +
-        "For notarization also set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID.",
+        "Alternatively use the team's CSC_LINK, CSC_KEY_PASSWORD, and CSC_NAME in an isolated temporary keychain.",
+    );
+  }
+  const selectedName = selected[2].replace(
+    /^Developer ID Application:\s*/,
+    "",
+  );
+  const sameNameCount = teamIdentities.filter(
+    ([, , name]) => name === selected[2],
+  ).length;
+  if (sameNameCount > 1) {
+    throw new Error(
+      `[package] ${sameNameCount} valid Developer ID Application certificates share the same identity name; electron-builder cannot disambiguate them in this keychain. ` +
+        "Keep the existing keychain unchanged and use efolix's CSC_LINK, CSC_KEY_PASSWORD, CSC_NAME, and MAC_SIGNING_TEAM_ID to sign from an isolated temporary keychain.",
     );
   }
   return {
     ...env,
-    // Use the SHA-1 identity rather than the common name: duplicate matching
-    // certificates can exist in the keychain and codesign treats that name
-    // as ambiguous.
-    CSC_NAME: selected[1],
+    CSC_NAME: selectedName,
     CSC_IDENTITY_AUTO_DISCOVERY: "true",
   };
 }
 
-function notarizationConfig(env, adHoc, includesMac) {
+export function notarizationConfig(env, adHoc, includesMac) {
   if (!includesMac) return { disableMacNotarize: false };
   if (adHoc) return { disableMacNotarize: true };
-  const keys = ["APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"];
-  const configured = keys.filter((key) => Boolean(env[key]));
-  if (configured.length === 0) {
+  const apiKeyCredentials = [
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER",
+  ];
+  const appleIdCredentials = [
+    "APPLE_ID",
+    "APPLE_APP_SPECIFIC_PASSWORD",
+    "APPLE_TEAM_ID",
+  ];
+  const apiKeyConfigured = apiKeyCredentials.some((key) => Boolean(env[key]));
+  const appleIdConfigured = appleIdCredentials.some((key) => Boolean(env[key]));
+  if (!apiKeyConfigured && !appleIdConfigured) {
     console.warn(
       "[package] Apple notarization credentials are not configured; the Developer ID-signed app will not be notarized. " +
-        "To notarize, set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID.",
+        "To notarize, set APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER, or set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID.",
     );
     return { disableMacNotarize: true };
   }
-  const missing = keys.filter((key) => !env[key]);
+  const selectedCredentials = apiKeyConfigured
+    ? apiKeyCredentials
+    : appleIdCredentials;
+  const missing = selectedCredentials.filter((key) => !env[key]);
   if (missing.length > 0) {
     throw new Error(
       `[package] incomplete Apple notarization credentials; missing ${missing.join(", ")}. ` +
-        "Set all three values or unset them all to build without notarization.",
+        "Set all three values for one authentication method or unset its variables to build without notarization.",
     );
   }
   return { disableMacNotarize: false };
