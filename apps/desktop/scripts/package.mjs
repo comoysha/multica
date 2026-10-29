@@ -441,7 +441,10 @@ function macSigningEnvironment(
   }
   return {
     ...env,
-    CSC_NAME: selected[2].replace(/^Developer ID Application:\s*/, ""),
+    // Use the SHA-1 identity rather than the common name: duplicate matching
+    // certificates can exist in the keychain and codesign treats that name
+    // as ambiguous.
+    CSC_NAME: selected[1],
     CSC_IDENTITY_AUTO_DISCOVERY: "true",
   };
 }
