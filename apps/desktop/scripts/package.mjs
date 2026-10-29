@@ -421,11 +421,13 @@ function macSigningEnvironment(
     /^\s*\d+\)\s+([A-F0-9]{40})\s+"(Developer ID Application:[^"]+)"/gm,
   );
   const available = [...identities];
+  const requestedName = env.CSC_NAME?.replace(/^Developer ID Application:\s*/, "");
   const selected = env.CSC_NAME
     ? available.find(
         ([, hash, name]) =>
           hash.toLowerCase() === env.CSC_NAME.toLowerCase() ||
-          name === env.CSC_NAME,
+          name === env.CSC_NAME ||
+          name.replace(/^Developer ID Application:\s*/, "") === requestedName,
       )
     : available[0];
   if (!selected) {
@@ -439,7 +441,7 @@ function macSigningEnvironment(
   }
   return {
     ...env,
-    CSC_NAME: selected[2],
+    CSC_NAME: selected[2].replace(/^Developer ID Application:\s*/, ""),
     CSC_IDENTITY_AUTO_DISCOVERY: "true",
   };
 }
