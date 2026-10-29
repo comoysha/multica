@@ -17,15 +17,20 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   TextInput,
+  View,
 } from "react-native";
+import {
+  KeyboardAwareScrollView,
+  KeyboardStickyView,
+} from "react-native-keyboard-controller";
 import { Stack, router } from "expo-router";
 import { SubmitIssueButton } from "@/components/issue/submit-issue-button";
 import { CreateFormAttributeRow } from "@/components/issue/create-form-attribute-row";
-import { MentionSuggestionBar } from "@/components/issue/mention-suggestion-bar";
+import {
+  MAX_MENTION_SUGGESTION_HEIGHT,
+  MentionSuggestionBar,
+} from "@/components/issue/mention-suggestion-bar";
 import { DescriptionField } from "@/components/issue/description-field";
 import { MOBILE_PLACEHOLDER_COLOR } from "@/components/ui/input-tokens";
 import { useCreateIssue } from "@/data/mutations/issues";
@@ -110,13 +115,18 @@ export default function NewIssueModal() {
   return (
     <>
       <Stack.Screen options={{ headerRight }} />
-      <KeyboardAvoidingView
-        className="flex-1 bg-background"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          className="flex-1"
-          contentContainerClassName="px-4 pt-4 pb-6 gap-4"
+      <View className="flex-1 bg-background">
+        <KeyboardAwareScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 24,
+            rowGap: 16,
+          }}
+          bottomOffset={
+            12 + (description.mentioning ? MAX_MENTION_SUGGESTION_HEIGHT : 0)
+          }
           keyboardShouldPersistTaps="handled"
         >
           <TextInput
@@ -134,13 +144,15 @@ export default function NewIssueModal() {
             disabled={isSubmitting}
           />
           <CreateFormAttributeRow />
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         {/* Mention suggestions float above the keyboard only when the user
             types `@`. Self-hides via `if (!visible) return null` so it
             doesn't take space at rest. */}
-        <MentionSuggestionBar {...description.suggestionBar} />
-      </KeyboardAvoidingView>
+        <KeyboardStickyView>
+          <MentionSuggestionBar {...description.suggestionBar} />
+        </KeyboardStickyView>
+      </View>
     </>
   );
 }

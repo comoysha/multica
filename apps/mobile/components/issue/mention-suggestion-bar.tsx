@@ -74,6 +74,7 @@ interface Props {
 
 const RECENT_LIMIT = 5;
 const MY_ISSUES_LIMIT = 10;
+export const MAX_MENTION_SUGGESTION_HEIGHT = 220;
 
 export function MentionSuggestionBar({
   visible,
@@ -228,7 +229,7 @@ export function MentionSuggestionBar({
     // Animated.View outer + className on inner View) — single follow-up.
     <View
       className="bg-background border-b border-border"
-      style={{ maxHeight: 220 }}
+      style={{ maxHeight: MAX_MENTION_SUGGESTION_HEIGHT }}
     >
       <FlatList
         data={rows}
