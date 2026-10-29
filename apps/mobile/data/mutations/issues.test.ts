@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/data/api";
 import { appConfigOptions } from "@/data/queries/billing";
 import { issueKeys } from "@/data/queries/issue-keys";
-import { useDeleteComment } from "./issues";
+import { useDeleteComment, useUpdateIssue } from "./issues";
 
 const state = vi.hoisted(() => ({
   qc: undefined as unknown as QueryClient,
@@ -30,7 +30,10 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 
 vi.mock("@/data/api", () => ({
-  api: { deleteComment: vi.fn(async () => undefined) },
+  api: {
+    deleteComment: vi.fn(async () => undefined),
+    updateIssue: vi.fn(async () => ({ id: "issue-1", revision: 2 })),
+  },
 }));
 
 vi.mock("@/data/auth-store", () => ({ useAuthStore: vi.fn() }));
@@ -117,5 +120,30 @@ describe("useDeleteComment", () => {
     for (const key of [issueKeys.detail(wsId, issueId), myKey, issueKeys.list(wsId)]) {
       expect(state.qc.getQueryState(key)?.isInvalidated).toBe(true);
     }
+  });
+});
+
+describe("useUpdateIssue", () => {
+  it("refreshes issue attachments after an image is bound to the description", async () => {
+    state.qc = new QueryClient();
+    const detailKey = issueKeys.detail(wsId, issueId);
+    const attachmentsKey = issueKeys.attachments(wsId, issueId);
+    state.qc.setQueryData<Issue>(detailKey, {
+      id: issueId,
+      revision: 1,
+      description: "Before",
+    } as Issue);
+    state.qc.setQueryData(attachmentsKey, []);
+
+    await useUpdateIssue(issueId).mutateAsync({
+      description: "Before\n\n![](/api/attachments/attachment-1/download)",
+      attachment_ids: ["attachment-1"],
+    });
+
+    expect(api.updateIssue).toHaveBeenCalledWith(issueId, expect.objectContaining({
+      attachment_ids: ["attachment-1"],
+    }));
+    expect(state.qc.getQueryState(attachmentsKey)?.isInvalidated).toBe(true);
+    expect(state.qc.getQueryData<Issue>(detailKey)).not.toHaveProperty("attachment_ids");
   });
 });
