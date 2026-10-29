@@ -51,10 +51,10 @@ mac:
   # Naming scheme: multica-desktop-<version>-<platform>-<arch>.<ext>
   # so the filename alone surfaces kind, version, platform, and CPU arch.
   artifactName: multica-desktop-${version}-mac-${arch}.${ext}
-  # Notarize via notarytool. Requires APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD
-  # + APPLE_TEAM_ID env vars at package time. Non-mac contributors are
-  # unaffected because `pnpm package` already requires the Developer ID
-  # signing cert — notarization is a strict superset.
+  # Notarize via notarytool. The package script enables this only when all
+  # three credentials are present: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
+  # and APPLE_TEAM_ID. A Developer ID Application certificate is required
+  # for normal macOS builds; `--ad-hoc` is reserved for local testing.
   notarize: true
 dmg:
   artifactName: multica-desktop-${version}-mac-${arch}.${ext}
