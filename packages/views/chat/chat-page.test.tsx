@@ -99,7 +99,11 @@ vi.mock("@multica/core/platform", async (importOriginal) => ({
 // DOM frozen on the first commit — which silently hides exactly the class of
 // bug the StrictMode regression below exists to catch.
 const storeRef = vi.hoisted(() => ({
-  current: { activeSessionId: null as string | null },
+  current: {
+    activeSessionId: null as string | null,
+    inputDrafts: {} as Record<string, string>,
+    inputDraftAttachments: {} as Record<string, unknown[]>,
+  },
 }));
 const storeListeners = vi.hoisted(() => new Set<() => void>());
 const availableAgentsRef = vi.hoisted(() => ({ current: [] as Agent[] }));
@@ -122,8 +126,9 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@multica/core/chat", () => ({
+  DRAFT_NEW_SESSION: "__new__",
   useChatStore: Object.assign(
-    (selector?: (s: { activeSessionId: string | null }) => unknown) =>
+    (selector?: (s: typeof storeRef.current) => unknown) =>
       selector ? selector(storeRef.current) : storeRef.current,
     { getState: () => storeRef.current },
   ),
@@ -253,7 +258,11 @@ function renderPage(search: string, { strict = false } = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  storeRef.current = { activeSessionId: null };
+  storeRef.current = {
+    activeSessionId: null,
+    inputDrafts: {},
+    inputDraftAttachments: {},
+  };
   storeListeners.clear();
   availableAgentsRef.current = [agent];
   agentsSettledRef.current = true;
@@ -442,11 +451,74 @@ describe("ChatPage ?agent= deep link", () => {
     // P2): the composingNew reset must read the LIVE store value, or the
     // stale persisted session re-closes the pane the intent just opened —
     // while the consumed-intent guard rightly refuses to fire again.
-    storeRef.current = { activeSessionId: "old-session" };
+    storeRef.current = { ...storeRef.current, activeSessionId: "old-session" };
     const { replace } = renderPage("agent=agent-1", { strict: true });
     expect(mockStartNewChat).toHaveBeenCalledTimes(1);
     expect(replace).toHaveBeenCalledWith("/acme/chat");
     expect(screen.getByText("chat-input")).toBeInTheDocument();
+  });
+});
+
+describe("ChatPage new-chat draft", () => {
+  const SELECT_PROMPT = "Pick a conversation, or start a new one with +";
+
+  it("reopens the compose pane when an unsent new chat is still in the draft", () => {
+    storeRef.current = {
+      activeSessionId: null,
+      inputDrafts: { __new__: "half a thought" },
+      inputDraftAttachments: {},
+    };
+    renderPage("");
+
+    expect(screen.getByText("chat-input")).toBeInTheDocument();
+    expect(screen.queryByText(SELECT_PROMPT)).not.toBeInTheDocument();
+  });
+
+  it("reopens the compose pane for a new chat that only has a staged file", () => {
+    storeRef.current = {
+      activeSessionId: null,
+      inputDrafts: {},
+      inputDraftAttachments: { __new__: [{ clientUploadId: "up-1" }] },
+    };
+    renderPage("");
+
+    expect(screen.getByText("chat-input")).toBeInTheDocument();
+  });
+
+  it("keeps the open thread when a leftover new-chat draft also exists", () => {
+    storeRef.current = {
+      activeSessionId: "session-1",
+      inputDrafts: { __new__: "half a thought" },
+      inputDraftAttachments: {},
+    };
+    renderPage("session=session-1");
+
+    expect(storeRef.current.activeSessionId).toBe("session-1");
+    expect(screen.getByText("chat-input")).toBeInTheDocument();
+    expect(screen.queryByText(SELECT_PROMPT)).not.toBeInTheDocument();
+  });
+
+  it("shows the pick-a-conversation prompt when the new chat was never typed", () => {
+    renderPage("");
+
+    expect(screen.queryByText("chat-input")).not.toBeInTheDocument();
+    expect(screen.getByText(SELECT_PROMPT)).toBeInTheDocument();
+  });
+
+  it("brings the draft back when a retained page returns to chat", () => {
+    const { rerender } = renderPage("");
+    expect(screen.queryByText("chat-input")).not.toBeInTheDocument();
+
+    storeRef.current = {
+      ...storeRef.current,
+      activeSessionId: null,
+      inputDrafts: { __new__: "typed on the way out" },
+    };
+    rerender({ pathname: "/acme/issues", search: "" });
+    rerender({ pathname: "/acme/chat", search: "" });
+
+    expect(screen.getByText("chat-input")).toBeInTheDocument();
+    expect(screen.queryByText(SELECT_PROMPT)).not.toBeInTheDocument();
   });
 });
 
@@ -472,7 +544,7 @@ describe("ChatPage responsive layout", () => {
     layout.width = FOLD_INNER;
     // The page reconciles the store against `?session=`, so the open thread has
     // to be in the URL too — otherwise the sync effect closes it.
-    storeRef.current = { activeSessionId: "session-1" };
+    storeRef.current = { ...storeRef.current, activeSessionId: "session-1" };
     renderPage("session=session-1");
 
     expect(
@@ -487,7 +559,7 @@ describe("ChatPage responsive layout", () => {
     // there instead (see the sidebar), so the thread list stays on screen next
     // to an open conversation.
     layout.width = TABLET;
-    storeRef.current = { activeSessionId: "session-1" };
+    storeRef.current = { ...storeRef.current, activeSessionId: "session-1" };
     renderPage("session=session-1");
 
     expect(

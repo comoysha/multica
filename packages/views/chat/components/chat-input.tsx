@@ -729,6 +729,10 @@ export function ChatInput({
             onUploadingChange={uploadGate.onUploadingChange}
             attachments={draftAttachments}
             debounceMs={100}
+            // Closing the chat tab unmounts this editor. Without a flush, the
+            // last keystrokes still inside the debounce window never reach the
+            // persisted new-chat draft, so coming back shows an empty box.
+            flushPendingOnUnmount
             mentionMode={contextItems ? "context" : "default"}
             mentionContextItems={contextItems}
             enableSlashCommands

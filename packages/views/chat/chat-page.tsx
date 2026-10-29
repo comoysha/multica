@@ -13,7 +13,7 @@ import {
 import { useIsCompact } from "@multica/ui/hooks/use-mobile";
 import { useRequiredWorkspaceSlug, useWorkspacePaths } from "@multica/core/paths";
 import { getCurrentSlug } from "@multica/core/platform";
-import { useChatStore } from "@multica/core/chat";
+import { useChatStore, DRAFT_NEW_SESSION } from "@multica/core/chat";
 import { chatQuickActionsPendingOptions } from "@multica/core/chat/queries";
 import { useRegenerateChatQuickActions } from "@multica/core/chat/mutations";
 import { useQuickActionsPendingTimeout } from "@multica/core/chat/use-quick-actions-pending-timeout";
@@ -36,6 +36,19 @@ import { NoAgentBanner } from "./components/no-agent-banner";
 import { ArchivedAgentBanner } from "./components/archived-agent-banner";
 import { AgentAccessRevokedBanner } from "./components/agent-access-revoked-banner";
 import { RuntimeRequiredBanner } from "./components/runtime-required-banner";
+
+/**
+ * An unsent new chat lives only in the draft slot until the first message
+ * creates a session. Desktop tabs unmount this page on switch, so "I was
+ * composing" cannot be component state — the draft itself is the signal that
+ * the compose pane should come back with the text still in it.
+ */
+function hasUnsentNewChatDraft(): boolean {
+  const { inputDrafts, inputDraftAttachments } = useChatStore.getState();
+  const text = inputDrafts[DRAFT_NEW_SESSION] ?? "";
+  const uploads = inputDraftAttachments[DRAFT_NEW_SESSION] ?? [];
+  return text.trim().length > 0 || uploads.length > 0;
+}
 
 /**
  * Chat tab — the first-class two-pane surface (thread list on the left,
@@ -84,10 +97,13 @@ export function ChatPage() {
   const urlAgent = searchParams.get("agent") || null;
 
   // "Composing a brand-new chat" — the user hit ⊕ but hasn't sent yet, so no
-  // session exists. At compact widths this decides list-vs-conversation; on desktop the
-  // conversation pane is always mounted so it only needs to reset itself once a
-  // real session takes over.
-  const [composingNew, setComposingNew] = useState(false);
+  // session exists. At compact widths this decides list-vs-conversation; on
+  // desktop it decides compose pane vs the neutral "pick a conversation"
+  // prompt. Seed it from the persisted draft so a tab switch (which unmounts
+  // this page) does not throw away an in-progress new chat.
+  const [composingNew, setComposingNew] = useState(
+    () => !useChatStore.getState().activeSessionId && hasUnsentNewChatDraft(),
+  );
   useEffect(() => {
     // Read the LIVE store value for the same reason as the session sync
     // effects below: under StrictMode's double-invoke this effect replays
@@ -127,6 +143,18 @@ export function ChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile store/route changes, not URL updates
   }, [isCurrentChatRoute, workspaceSlug, c.activeSessionId]);
+
+  // A retained page (or a remount whose first paint raced the URL sync) comes
+  // back to a bare /chat with the draft still in the store and composingNew
+  // still false. Open the compose pane only once the URL sync above has
+  // settled, and only while no session is selected — an open thread wins, and
+  // the compact back button (same route, session cleared on purpose) does not
+  // re-run this.
+  useEffect(() => {
+    if (!isCurrentChatRoute || getCurrentSlug() !== workspaceSlug) return;
+    if (useChatStore.getState().activeSessionId) return;
+    if (hasUnsentNewChatDraft()) setComposingNew(true);
+  }, [isCurrentChatRoute, workspaceSlug]);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "multica_chat_layout",

@@ -362,6 +362,16 @@ describe("ChatInput draft isolation across a composer switch (real debounce)", (
     expect(mockSetContent).toHaveBeenCalled();
   });
 
+  it("saves a new-chat draft that is still inside the debounce window when the composer unmounts", () => {
+    const { unmount } = render(element());
+    type("still in the debounce window");
+    expect(store().inputDrafts).toEqual({});
+
+    unmount();
+
+    expect(store().inputDrafts["__new__"]).toBe("still in the debounce window");
+  });
+
   it("keeps a New Chat draft intact when only the agent changes", () => {
     // The MUL-4864 headline behavior, verified through the real debounce:
     // switching agent does not move draftKey, so there is nothing to flush and
