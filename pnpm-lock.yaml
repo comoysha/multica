@@ -240,6 +240,9 @@ importers:
       '@multica/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
+      app-builder-lib:
+        specifier: ^26.0.12
+        version: 26.8.1(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
       '@tailwindcss/vite':
         specifier: ^4
         version: 4.2.2(vite@8.0.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.3)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.47.1)(yaml@2.9.0))

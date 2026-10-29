@@ -2,17 +2,195 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   builderArgsForTarget,
   deriveVersion,
   DESCRIBE_ARGS,
   envWithLocalBins,
+  macSigningEnvironment,
+  macSigningEnvironmentForIdentities,
   normalizeGitVersion,
+  notarizationConfig,
   parsePackageArgs,
   resolveBuildMatrix,
   stripLeadingSeparator,
+  teamCertificateEnvironment,
 } from "./package.mjs";
+
+vi.mock("app-builder-lib/out/codeSign/macCodeSign.js", () => ({
+  sign: (options) => options,
+}));
+import signMac from "./sign-mac.mjs";
+
+const GUNMA_TEAM_ID = "L72JZDVM4S";
+const GUNMA_IDENTITY_A = "D05B08C237921D4FD69B5C5F3288A33E6AF625E1";
+const GUNMA_IDENTITY_B = "5DC0A9441927745AD881A8A1A4246E2FFEAF2913";
+const GUNMA_IDENTITY_C = "8205EF73461DDF5B7671C3248ADA3AB5934520B9";
+const SAME_NAME_IDENTITIES = [GUNMA_IDENTITY_A, GUNMA_IDENTITY_B, GUNMA_IDENTITY_C]
+  .map(
+    (fingerprint, index) =>
+      ` ${index + 1}) ${fingerprint} "Developer ID Application: Gunma Network Co., Ltd (${GUNMA_TEAM_ID})"`,
+  )
+  .join("\n");
+
+describe("macSigningEnvironment", () => {
+  const macTarget = [{ platform: "mac", arch: "arm64" }];
+  const options = {
+    adHoc: false,
+    hostPlatform: "darwin",
+    findIdentities: () => ({ status: 0, stdout: SAME_NAME_IDENTITIES }),
+  };
+
+  it("uses the chosen Gunma identity for normal builds without environment settings", () => {
+    expect(macSigningEnvironment(macTarget, { ...options, env: {} })).toMatchObject({
+      MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID,
+      MAC_SIGNING_IDENTITY_SHA1: GUNMA_IDENTITY_A,
+      CSC_NAME: GUNMA_IDENTITY_A,
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+  });
+
+  it("fails if the chosen identity is unavailable instead of selecting a different certificate", () => {
+    expect(() =>
+      macSigningEnvironment(macTarget, {
+        ...options,
+        env: {},
+        findIdentities: () => ({
+          status: 0,
+          stdout: SAME_NAME_IDENTITIES.split("\n").slice(1).join("\n"),
+        }),
+      }),
+    ).toThrow(/MAC_SIGNING_IDENTITY_SHA1 does not match/);
+  });
+
+  it("allows an explicitly selected team and fingerprint to override the defaults", () => {
+    const otherHash = "A".repeat(40);
+    const output = ` 1) ${otherHash} "Developer ID Application: Other Team (OTHER12345)"`;
+    expect(
+      macSigningEnvironment(macTarget, {
+        ...options,
+        env: { MAC_SIGNING_TEAM_ID: "OTHER12345", MAC_SIGNING_IDENTITY_SHA1: otherHash },
+        findIdentities: () => ({ status: 0, stdout: output }),
+      }),
+    ).toMatchObject({ MAC_SIGNING_TEAM_ID: "OTHER12345", CSC_NAME: otherHash });
+  });
+});
+
+describe("macSigningEnvironmentForIdentities", () => {
+  it("requires a fingerprint when several valid identities have the same name", () => {
+    expect(() =>
+      macSigningEnvironmentForIdentities(
+        { MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID },
+        SAME_NAME_IDENTITIES,
+      ),
+    ).toThrow(/set MAC_SIGNING_IDENTITY_SHA1/i);
+  });
+
+  it("selects only the requested same-name certificate fingerprint", () => {
+    expect(
+      macSigningEnvironmentForIdentities(
+        {
+          MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID,
+          MAC_SIGNING_IDENTITY_SHA1: `d0:5b:08:c2:37:92:1d:4f:d6:9b:5c:5f:32:88:a3:3e:6a:f6:25:e1`,
+        },
+        SAME_NAME_IDENTITIES,
+      ),
+    ).toMatchObject({
+      CSC_NAME: GUNMA_IDENTITY_A,
+      MAC_SIGNING_IDENTITY_SHA1: GUNMA_IDENTITY_A,
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+  });
+
+  it("rejects a fingerprint that is not a valid identity for the requested team", () => {
+    expect(() =>
+      macSigningEnvironmentForIdentities(
+        {
+          MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID,
+          MAC_SIGNING_IDENTITY_SHA1: "A".repeat(40),
+        },
+        SAME_NAME_IDENTITIES,
+      ),
+    ).toThrow(/does not match an installed/);
+  });
+});
+
+describe("macOS custom sign hook", () => {
+  it("preserves the resolved identity fingerprint when invoking electron-builder signing", async () => {
+    const options = { app: "/tmp/test.app", identity: GUNMA_IDENTITY_A };
+    expect(signMac(options)).toBe(options);
+  });
+
+  it("refuses to sign by an ambiguous common name", () => {
+    expect(() =>
+      signMac({ identity: "Developer ID Application: Gunma Network Co., Ltd" }),
+    ).toThrow(/ambiguous identity name/);
+  });
+});
+
+describe("teamCertificateEnvironment", () => {
+  it("selects the configured team certificate from an isolated certificate bundle", () => {
+    expect(
+      teamCertificateEnvironment({
+        CSC_LINK: "/secure/efolix.p12",
+        CSC_KEY_PASSWORD: "secret",
+        CSC_NAME: "Developer ID Application: Efolix (TEAM123456)",
+        MAC_SIGNING_TEAM_ID: "TEAM123456",
+        CSC_IDENTITY_AUTO_DISCOVERY: "false",
+      }),
+    ).toMatchObject({
+      CSC_LINK: "/secure/efolix.p12",
+      CSC_KEY_PASSWORD: "secret",
+      CSC_NAME: "Efolix (TEAM123456)",
+      MAC_SIGNING_TEAM_ID: "TEAM123456",
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+  });
+
+  it("rejects an absent or mismatched expected Apple team", () => {
+    expect(() =>
+      teamCertificateEnvironment({
+        CSC_LINK: "/secure/team.p12",
+        CSC_NAME: "Other Company (OTHER12345)",
+        MAC_SIGNING_TEAM_ID: "TEAM123456",
+      }),
+    ).toThrow(/MAC_SIGNING_TEAM_ID/);
+  });
+});
+
+describe("notarizationConfig", () => {
+  it("enables notarization with an App Store Connect API key", () => {
+    expect(
+      notarizationConfig(
+        {
+          APPLE_API_KEY: "/secure/AuthKey.p8",
+          APPLE_API_KEY_ID: "KEY1234567",
+          APPLE_API_ISSUER: "issuer-id",
+        },
+        false,
+        true,
+      ),
+    ).toEqual({ disableMacNotarize: false });
+  });
+
+  it("accepts Apple ID notarization and rejects incomplete credentials", () => {
+    expect(
+      notarizationConfig(
+        {
+          APPLE_ID: "release@example.test",
+          APPLE_APP_SPECIFIC_PASSWORD: "app-specific-password",
+          APPLE_TEAM_ID: "TEAM123456",
+        },
+        false,
+        true,
+      ),
+    ).toEqual({ disableMacNotarize: false });
+    expect(() =>
+      notarizationConfig({ APPLE_API_KEY_ID: "KEY1234567" }, false, true),
+    ).toThrow(/APPLE_API_KEY, APPLE_API_ISSUER/);
+  });
+});
 
 describe("normalizeGitVersion", () => {
   it("returns null for empty / nullish input", () => {

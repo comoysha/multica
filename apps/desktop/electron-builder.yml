@@ -43,6 +43,10 @@ mac:
   # Electron 44 requires macOS 13 Ventura; declare it on every mac bundle.
   minimumSystemVersion: "13.0.0"
   entitlementsInherit: build/entitlements.mac.plist
+  # Forward electron-builder's resolved identity fingerprint to its normal
+  # signing implementation. The default callback degrades it to a common name,
+  # which is ambiguous when a keychain contains renewed same-name certificates.
+  sign: ./scripts/sign-mac.mjs
   target:
     - dmg
     - zip
@@ -51,10 +55,11 @@ mac:
   # Naming scheme: multica-desktop-<version>-<platform>-<arch>.<ext>
   # so the filename alone surfaces kind, version, platform, and CPU arch.
   artifactName: multica-desktop-${version}-mac-${arch}.${ext}
-  # Notarize via notarytool. Requires APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD
-  # + APPLE_TEAM_ID env vars at package time. Non-mac contributors are
-  # unaffected because `pnpm package` already requires the Developer ID
-  # signing cert — notarization is a strict superset.
+  # Fail instead of silently shipping an unsigned app when signing credentials
+  # are missing or invalid. Notarization uses either APPLE_API_KEY,
+  # APPLE_API_KEY_ID, APPLE_API_ISSUER or APPLE_ID,
+  # APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+  forceCodeSigning: true
   notarize: true
 dmg:
   artifactName: multica-desktop-${version}-mac-${arch}.${ext}

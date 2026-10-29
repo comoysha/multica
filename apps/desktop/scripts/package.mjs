@@ -18,9 +18,12 @@
 // renderer code and white-screens on launch.
 //
 // Extra CLI args after `pnpm package --` are forwarded to electron-builder
-// unchanged (e.g. `--mac --arm64`). For an unsigned local smoke-test
-// build, set `CSC_IDENTITY_AUTO_DISCOVERY=false` so electron-builder falls
-// back to an ad-hoc signature instead of requiring a Developer ID cert.
+// unchanged (e.g. `--mac --arm64`). Mac builds require a Developer ID
+// Application identity by default. The configured Gunma identity is shared
+// by branch and release builds; MAC_SIGNING_TEAM_ID and
+// MAC_SIGNING_IDENTITY_SHA1 can select another installed identity. Use
+// CSC_LINK + CSC_KEY_PASSWORD for an isolated certificate bundle.
+// Use `--ad-hoc` only for a local test build.
 //
 // The `normalizeGitVersion`, `deriveVersion`, and `DESCRIBE_ARGS` exports let
 // tests cover version derivation both as a pure string transform and as the
@@ -34,6 +37,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(here, "..");
 const bundleCliScript = resolve(here, "bundle-cli.mjs");
+const DEFAULT_MAC_SIGNING_TEAM_ID = "L72JZDVM4S";
+const DEFAULT_MAC_SIGNING_IDENTITY_SHA1 = "D05B08C237921D4FD69B5C5F3288A33E6AF625E1";
 
 const PLATFORM_CONFIG = {
   mac: {
@@ -312,6 +317,7 @@ export function builderArgsForTarget(
   version,
   {
     disableMacNotarize = false,
+    adHoc = false,
     hostPlatform = process.platform,
     useScopedOutputDir = false,
   } = {},
@@ -319,6 +325,9 @@ export function builderArgsForTarget(
   const builderArgs = [];
   if (version) builderArgs.push(`-c.extraMetadata.version=${version}`);
   if (disableMacNotarize) builderArgs.push("-c.mac.notarize=false");
+  if (target.platform === "mac" && adHoc) {
+    builderArgs.push("-c.mac.identity=-");
+  }
   builderArgs.push(PLATFORM_CONFIG[target.platform].builderFlag);
   const requestedTargets = parsed.platformTargets[target.platform];
   if (
@@ -370,10 +379,204 @@ export function builderArgsForTarget(
   return builderArgs;
 }
 
+export function teamCertificateEnvironment(env) {
+  const teamId = env.MAC_SIGNING_TEAM_ID?.trim();
+  const configuredName = env.CSC_NAME?.trim() ?? "";
+  const certificateName = configuredName.replace(
+    /^Developer ID Application:\s*/,
+    "",
+  );
+  if (!teamId || !certificateName || !certificateName.includes(`(${teamId})`)) {
+    throw new Error(
+      "[package] team certificate signing requires CSC_NAME to identify the Developer ID Application certificate and MAC_SIGNING_TEAM_ID to match its Apple team. " +
+        "Set these with CSC_LINK and CSC_KEY_PASSWORD using the signing team's credentials.",
+    );
+  }
+  return {
+    ...env,
+    CSC_NAME: certificateName,
+    CSC_IDENTITY_AUTO_DISCOVERY: "true",
+  };
+}
+
+export function macSigningEnvironment(
+  buildMatrix,
+  { adHoc, env = process.env, hostPlatform = process.platform, findIdentities = spawnSync },
+) {
+  if (!buildMatrix.some((target) => target.platform === "mac")) return { ...env };
+
+  if (adHoc) {
+    return {
+      ...env,
+      CSC_LINK: "",
+      CSC_NAME: "",
+      CSC_IDENTITY_AUTO_DISCOVERY: "false",
+    };
+  }
+  if (hostPlatform !== "darwin") {
+    throw new Error(
+      "[package] macOS packaging requires a macOS host with a Developer ID Application certificate. " +
+        "Use --ad-hoc only for an unsigned local test build.",
+    );
+  }
+  const signingEnv = {
+    ...env,
+    MAC_SIGNING_TEAM_ID: env.MAC_SIGNING_TEAM_ID?.trim() || DEFAULT_MAC_SIGNING_TEAM_ID,
+  };
+  if (signingEnv.CSC_LINK) {
+    return teamCertificateEnvironment(signingEnv);
+  }
+  if (
+    signingEnv.MAC_SIGNING_TEAM_ID === DEFAULT_MAC_SIGNING_TEAM_ID &&
+    !signingEnv.MAC_SIGNING_IDENTITY_SHA1?.trim() &&
+    !signingEnv.CSC_NAME?.trim()
+  ) {
+    signingEnv.MAC_SIGNING_IDENTITY_SHA1 = DEFAULT_MAC_SIGNING_IDENTITY_SHA1;
+  }
+
+  // Select a Developer ID Application cert from this Mac's keychain and pass
+  // it explicitly, so an inherited CSC_IDENTITY_AUTO_DISCOVERY=false cannot
+  // silently change the signature.
+  const result = findIdentities(
+    "security",
+    ["find-identity", "-v", "-p", "codesigning"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `[package] could not inspect macOS code-signing identities: ${result.error?.message ?? output.trim()}. ` +
+        "Install a Developer ID Application certificate in Keychain Access, or use --ad-hoc for a local test build.",
+    );
+  }
+
+  return macSigningEnvironmentForIdentities(signingEnv, output);
+}
+
+export function macSigningEnvironmentForIdentities(env, output) {
+  if (!env.MAC_SIGNING_TEAM_ID?.trim()) {
+    throw new Error(
+      "[package] MAC_SIGNING_TEAM_ID must be set to the Apple team that owns this app's Developer ID certificate.",
+    );
+  }
+  const identities = output.matchAll(
+    /^\s*\d+\)\s+([A-F0-9]{40})\s+"(Developer ID Application:[^"]+)"/gm,
+  );
+  const available = [...identities];
+  const teamId = env.MAC_SIGNING_TEAM_ID.trim();
+  const teamIdentities = available.filter(([, , name]) =>
+    name.includes(`(${teamId})`),
+  );
+  const requestedFingerprint = env.MAC_SIGNING_IDENTITY_SHA1
+    ?.replaceAll(":", "")
+    .trim()
+    .toUpperCase();
+  if (requestedFingerprint && !/^[A-F0-9]{40}$/.test(requestedFingerprint)) {
+    throw new Error(
+      "[package] MAC_SIGNING_IDENTITY_SHA1 must be a 40-character SHA-1 certificate fingerprint.",
+    );
+  }
+  const requestedName = env.CSC_NAME?.replace(/^Developer ID Application:\s*/, "");
+  const selected = requestedFingerprint
+    ? teamIdentities.find(([, hash]) => hash.toUpperCase() === requestedFingerprint)
+    : env.CSC_NAME
+      ? teamIdentities.find(
+          ([, hash, name]) =>
+            hash.toLowerCase() === env.CSC_NAME.toLowerCase() ||
+            name === env.CSC_NAME ||
+            name.replace(/^Developer ID Application:\s*/, "") === requestedName,
+        )
+      : teamIdentities[0];
+  if (!selected) {
+    const detail = requestedFingerprint
+      ? `MAC_SIGNING_IDENTITY_SHA1 does not match an installed Developer ID Application certificate for team ${teamId}.`
+      : env.CSC_NAME
+      ? `CSC_NAME '${env.CSC_NAME}' does not match an installed Developer ID Application certificate for team ${teamId}.`
+      : `No Developer ID Application certificate for team ${teamId} is installed in the keychain.`;
+    throw new Error(
+      `[package] ${detail} Install the certificate and private key in Keychain Access, or use --ad-hoc for a local test build. ` +
+        "Alternatively use a team-provided CSC_LINK, CSC_KEY_PASSWORD, and CSC_NAME in an isolated temporary keychain.",
+    );
+  }
+  const selectedName = selected[2].replace(
+    /^Developer ID Application:\s*/,
+    "",
+  );
+  const sameNameCount = teamIdentities.filter(
+    ([, , name]) => name === selected[2],
+  ).length;
+  if (sameNameCount > 1 && !requestedFingerprint) {
+    throw new Error(
+      `[package] ${sameNameCount} valid Developer ID Application certificates share the same identity name; electron-builder cannot disambiguate them in this keychain. ` +
+        "Keep the existing keychain unchanged and set MAC_SIGNING_IDENTITY_SHA1 to the intended certificate fingerprint.",
+    );
+  }
+  return {
+    ...env,
+    ...(requestedFingerprint
+      ? { MAC_SIGNING_IDENTITY_SHA1: requestedFingerprint }
+      : {}),
+    CSC_NAME: requestedFingerprint ?? selectedName,
+    CSC_IDENTITY_AUTO_DISCOVERY: "true",
+  };
+}
+
+export function notarizationConfig(env, adHoc, includesMac) {
+  if (!includesMac) return { disableMacNotarize: false };
+  if (adHoc) return { disableMacNotarize: true };
+  const apiKeyCredentials = [
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER",
+  ];
+  const appleIdCredentials = [
+    "APPLE_ID",
+    "APPLE_APP_SPECIFIC_PASSWORD",
+    "APPLE_TEAM_ID",
+  ];
+  const apiKeyConfigured = apiKeyCredentials.some((key) => Boolean(env[key]));
+  const appleIdConfigured = appleIdCredentials.some((key) => Boolean(env[key]));
+  if (!apiKeyConfigured && !appleIdConfigured) {
+    console.warn(
+      "[package] Apple notarization credentials are not configured; the Developer ID-signed app will not be notarized. " +
+        "To notarize, set APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER, or set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID.",
+    );
+    return { disableMacNotarize: true };
+  }
+  const selectedCredentials = apiKeyConfigured
+    ? apiKeyCredentials
+    : appleIdCredentials;
+  const missing = selectedCredentials.filter((key) => !env[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `[package] incomplete Apple notarization credentials; missing ${missing.join(", ")}. ` +
+        "Set all three values for one authentication method or unset its variables to build without notarization.",
+    );
+  }
+  return { disableMacNotarize: false };
+}
+
 function main() {
   const passthrough = stripLeadingSeparator(process.argv.slice(2));
-  const parsed = parsePackageArgs(passthrough);
+  const adHoc = passthrough.includes("--ad-hoc");
+  const parsed = parsePackageArgs(passthrough.filter((arg) => arg !== "--ad-hoc"));
   const buildMatrix = resolveBuildMatrix(parsed);
+  let packageEnv;
+  let disableMacNotarize = false;
+  try {
+    packageEnv = macSigningEnvironment(buildMatrix, {
+      adHoc,
+      env: process.env,
+    });
+    ({ disableMacNotarize } = notarizationConfig(
+      process.env,
+      adHoc,
+      buildMatrix.some((target) => target.platform === "mac"),
+    ));
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
   console.log(
     `[package] build matrix → ${buildMatrix.map(formatTarget).join(", ")}`,
   );
@@ -430,14 +633,6 @@ function main() {
     );
   }
 
-  const disableMacNotarize = !process.env.APPLE_TEAM_ID;
-  if (disableMacNotarize) {
-    console.warn(
-      "[package] APPLE_TEAM_ID not set — skipping notarization (local dev build). " +
-        "Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID for a release build.",
-    );
-  }
-
   const useScopedOutputDir = buildMatrix.length > 1;
 
   // Step 3: for each requested target, build the matching CLI into
@@ -461,6 +656,7 @@ function main() {
 
     const builderArgs = builderArgsForTarget(target, parsed, version, {
       disableMacNotarize,
+      adHoc,
       hostPlatform: process.platform,
       useScopedOutputDir,
     });
@@ -471,7 +667,7 @@ function main() {
     const result = spawnSync("electron-builder", builderArgs, {
       stdio: "inherit",
       cwd: desktopRoot,
-      env: envWithLocalBins(),
+      env: envWithLocalBins(packageEnv),
       shell: true,
     });
 
