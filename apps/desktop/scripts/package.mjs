@@ -385,7 +385,7 @@ export function teamCertificateEnvironment(env) {
   if (!teamId || !certificateName || !certificateName.includes(`(${teamId})`)) {
     throw new Error(
       "[package] team certificate signing requires CSC_NAME to identify the Developer ID Application certificate and MAC_SIGNING_TEAM_ID to match its Apple team. " +
-        "Set these with CSC_LINK and CSC_KEY_PASSWORD using efolix's signing credentials.",
+        "Set these with CSC_LINK and CSC_KEY_PASSWORD using the signing team's credentials.",
     );
   }
   return {
@@ -395,7 +395,7 @@ export function teamCertificateEnvironment(env) {
   };
 }
 
-function macSigningEnvironment(
+export function macSigningEnvironment(
   buildMatrix,
   { adHoc, env = process.env, hostPlatform = process.platform },
 ) {
@@ -418,7 +418,7 @@ function macSigningEnvironment(
   if (!env.MAC_SIGNING_TEAM_ID?.trim()) {
     throw new Error(
       "[package] MAC_SIGNING_TEAM_ID must be set to the Apple team that owns this app's Developer ID certificate. " +
-        "Use efolix's team ID; signing with another team's certificate is not allowed for this app.",
+        "Set the team ID that owns the selected Developer ID certificate.",
     );
   }
   if (env.CSC_LINK) {
@@ -441,6 +441,15 @@ function macSigningEnvironment(
     );
   }
 
+  return macSigningEnvironmentForIdentities(env, output);
+}
+
+export function macSigningEnvironmentForIdentities(env, output) {
+  if (!env.MAC_SIGNING_TEAM_ID?.trim()) {
+    throw new Error(
+      "[package] MAC_SIGNING_TEAM_ID must be set to the Apple team that owns this app's Developer ID certificate.",
+    );
+  }
   const identities = output.matchAll(
     /^\s*\d+\)\s+([A-F0-9]{40})\s+"(Developer ID Application:[^"]+)"/gm,
   );
@@ -449,22 +458,35 @@ function macSigningEnvironment(
   const teamIdentities = available.filter(([, , name]) =>
     name.includes(`(${teamId})`),
   );
+  const requestedFingerprint = env.MAC_SIGNING_IDENTITY_SHA1
+    ?.replaceAll(":", "")
+    .trim()
+    .toUpperCase();
+  if (requestedFingerprint && !/^[A-F0-9]{40}$/.test(requestedFingerprint)) {
+    throw new Error(
+      "[package] MAC_SIGNING_IDENTITY_SHA1 must be a 40-character SHA-1 certificate fingerprint.",
+    );
+  }
   const requestedName = env.CSC_NAME?.replace(/^Developer ID Application:\s*/, "");
-  const selected = env.CSC_NAME
-    ? teamIdentities.find(
-        ([, hash, name]) =>
-          hash.toLowerCase() === env.CSC_NAME.toLowerCase() ||
-          name === env.CSC_NAME ||
-          name.replace(/^Developer ID Application:\s*/, "") === requestedName,
-      )
-    : teamIdentities[0];
+  const selected = requestedFingerprint
+    ? teamIdentities.find(([, hash]) => hash.toUpperCase() === requestedFingerprint)
+    : env.CSC_NAME
+      ? teamIdentities.find(
+          ([, hash, name]) =>
+            hash.toLowerCase() === env.CSC_NAME.toLowerCase() ||
+            name === env.CSC_NAME ||
+            name.replace(/^Developer ID Application:\s*/, "") === requestedName,
+        )
+      : teamIdentities[0];
   if (!selected) {
-    const detail = env.CSC_NAME
+    const detail = requestedFingerprint
+      ? `MAC_SIGNING_IDENTITY_SHA1 does not match an installed Developer ID Application certificate for team ${teamId}.`
+      : env.CSC_NAME
       ? `CSC_NAME '${env.CSC_NAME}' does not match an installed Developer ID Application certificate for team ${teamId}.`
       : `No Developer ID Application certificate for team ${teamId} is installed in the keychain.`;
     throw new Error(
       `[package] ${detail} Install the certificate and private key in Keychain Access, or use --ad-hoc for a local test build. ` +
-        "Alternatively use the team's CSC_LINK, CSC_KEY_PASSWORD, and CSC_NAME in an isolated temporary keychain.",
+        "Alternatively use a team-provided CSC_LINK, CSC_KEY_PASSWORD, and CSC_NAME in an isolated temporary keychain.",
     );
   }
   const selectedName = selected[2].replace(
@@ -474,15 +496,18 @@ function macSigningEnvironment(
   const sameNameCount = teamIdentities.filter(
     ([, , name]) => name === selected[2],
   ).length;
-  if (sameNameCount > 1) {
+  if (sameNameCount > 1 && !requestedFingerprint) {
     throw new Error(
       `[package] ${sameNameCount} valid Developer ID Application certificates share the same identity name; electron-builder cannot disambiguate them in this keychain. ` +
-        "Keep the existing keychain unchanged and use efolix's CSC_LINK, CSC_KEY_PASSWORD, CSC_NAME, and MAC_SIGNING_TEAM_ID to sign from an isolated temporary keychain.",
+        "Keep the existing keychain unchanged and set MAC_SIGNING_IDENTITY_SHA1 to the intended certificate fingerprint.",
     );
   }
   return {
     ...env,
-    CSC_NAME: selectedName,
+    ...(requestedFingerprint
+      ? { MAC_SIGNING_IDENTITY_SHA1: requestedFingerprint }
+      : {}),
+    CSC_NAME: requestedFingerprint ?? selectedName,
     CSC_IDENTITY_AUTO_DISCOVERY: "true",
   };
 }

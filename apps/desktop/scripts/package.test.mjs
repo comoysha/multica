@@ -2,12 +2,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   builderArgsForTarget,
   deriveVersion,
   DESCRIBE_ARGS,
   envWithLocalBins,
+  macSigningEnvironmentForIdentities,
   normalizeGitVersion,
   notarizationConfig,
   parsePackageArgs,
@@ -15,6 +16,74 @@ import {
   stripLeadingSeparator,
   teamCertificateEnvironment,
 } from "./package.mjs";
+
+vi.mock("app-builder-lib/out/codeSign/macCodeSign.js", () => ({
+  sign: (options) => options,
+}));
+import signMac from "./sign-mac.mjs";
+
+const GUNMA_TEAM_ID = "L72JZDVM4S";
+const GUNMA_IDENTITY_A = "D05B08C237921D4FD69B5C5F3288A33E6AF625E1";
+const GUNMA_IDENTITY_B = "5DC0A9441927745AD881A8A1A4246E2FFEAF2913";
+const GUNMA_IDENTITY_C = "8205EF73461DDF5B7671C3248ADA3AB5934520B9";
+const SAME_NAME_IDENTITIES = [GUNMA_IDENTITY_A, GUNMA_IDENTITY_B, GUNMA_IDENTITY_C]
+  .map(
+    (fingerprint, index) =>
+      ` ${index + 1}) ${fingerprint} "Developer ID Application: Gunma Network Co., Ltd (${GUNMA_TEAM_ID})"`,
+  )
+  .join("\n");
+
+describe("macSigningEnvironmentForIdentities", () => {
+  it("requires a fingerprint when several valid identities have the same name", () => {
+    expect(() =>
+      macSigningEnvironmentForIdentities(
+        { MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID },
+        SAME_NAME_IDENTITIES,
+      ),
+    ).toThrow(/set MAC_SIGNING_IDENTITY_SHA1/i);
+  });
+
+  it("selects only the requested same-name certificate fingerprint", () => {
+    expect(
+      macSigningEnvironmentForIdentities(
+        {
+          MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID,
+          MAC_SIGNING_IDENTITY_SHA1: `d0:5b:08:c2:37:92:1d:4f:d6:9b:5c:5f:32:88:a3:3e:6a:f6:25:e1`,
+        },
+        SAME_NAME_IDENTITIES,
+      ),
+    ).toMatchObject({
+      CSC_NAME: GUNMA_IDENTITY_A,
+      MAC_SIGNING_IDENTITY_SHA1: GUNMA_IDENTITY_A,
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+  });
+
+  it("rejects a fingerprint that is not a valid identity for the requested team", () => {
+    expect(() =>
+      macSigningEnvironmentForIdentities(
+        {
+          MAC_SIGNING_TEAM_ID: GUNMA_TEAM_ID,
+          MAC_SIGNING_IDENTITY_SHA1: "A".repeat(40),
+        },
+        SAME_NAME_IDENTITIES,
+      ),
+    ).toThrow(/does not match an installed/);
+  });
+});
+
+describe("macOS custom sign hook", () => {
+  it("preserves the resolved identity fingerprint when invoking electron-builder signing", async () => {
+    const options = { app: "/tmp/test.app", identity: GUNMA_IDENTITY_A };
+    expect(signMac(options)).toBe(options);
+  });
+
+  it("refuses to sign by an ambiguous common name", () => {
+    expect(() =>
+      signMac({ identity: "Developer ID Application: Gunma Network Co., Ltd" }),
+    ).toThrow(/ambiguous identity name/);
+  });
+});
 
 describe("teamCertificateEnvironment", () => {
   it("selects the configured team certificate from an isolated certificate bundle", () => {

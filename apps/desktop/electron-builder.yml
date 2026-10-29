@@ -43,6 +43,10 @@ mac:
   # Electron 44 requires macOS 13 Ventura; declare it on every mac bundle.
   minimumSystemVersion: "13.0.0"
   entitlementsInherit: build/entitlements.mac.plist
+  # Forward electron-builder's resolved identity fingerprint to its normal
+  # signing implementation. The default callback degrades it to a common name,
+  # which is ambiguous when a keychain contains renewed same-name certificates.
+  sign: ./scripts/sign-mac.mjs
   target:
     - dmg
     - zip
