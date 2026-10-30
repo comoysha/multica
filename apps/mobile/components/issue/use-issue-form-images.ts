@@ -3,6 +3,7 @@ import { Alert } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { attachmentDownloadPath } from "@multica/core/types/attachment-url";
 import { api, MAX_FILE_SIZE } from "@/data/api";
+import { resolveAttachmentUrl } from "@/lib/attachment-url";
 import { useT } from "@/lib/i18n";
 import type { ComposerAttachmentItem } from "./composer-attachment-row";
 
@@ -20,7 +21,7 @@ export function useIssueFormImages() {
             ...item,
             status: "completed",
             id: result.id,
-            url: result.markdown_url || attachmentDownloadPath(result.id),
+            url: resolveAttachmentUrl(result.markdown_url || attachmentDownloadPath(result.id)) || attachmentDownloadPath(result.id),
             downloadUrl: result.download_url,
           }
         : item));
