@@ -21,20 +21,24 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   TextInput,
   View,
 } from "react-native";
+import {
+  KeyboardAwareScrollView,
+  KeyboardStickyView,
+} from "react-native-keyboard-controller";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { stripChannelMediaMarkers } from "@multica/core/types";
 import { Text } from "@/components/ui/text";
 import { DescriptionField } from "@/components/issue/description-field";
 import { useIssueFormImages } from "@/components/issue/use-issue-form-images";
-import { MentionSuggestionBar } from "@/components/issue/mention-suggestion-bar";
+import {
+  MAX_MENTION_SUGGESTION_HEIGHT,
+  MentionSuggestionBar,
+} from "@/components/issue/mention-suggestion-bar";
 import { MOBILE_PLACEHOLDER_COLOR } from "@/components/ui/input-tokens";
 import { issueDetailOptions } from "@/data/queries/issues";
 import { useUpdateIssue } from "@/data/mutations/issues";
@@ -161,13 +165,18 @@ export default function EditIssue() {
   return (
     <>
       <Stack.Screen options={{ headerLeft, headerRight }} />
-      <KeyboardAvoidingView
-        className="flex-1 bg-background"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          className="flex-1"
-          contentContainerClassName="px-4 pt-4 pb-6 gap-4"
+      <View className="flex-1 bg-background">
+        <KeyboardAwareScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 24,
+            rowGap: 16,
+          }}
+          bottomOffset={
+            12 + (description.mentioning ? MAX_MENTION_SUGGESTION_HEIGHT : 0)
+          }
           keyboardShouldPersistTaps="handled"
         >
           {!detail.data ? (
@@ -197,12 +206,14 @@ export default function EditIssue() {
               </Field>
             </>
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
         {/* Mention suggestion bar floats above the keyboard while the user
             is mid-@. Outside the ScrollView so it doesn't scroll with the
             form body. */}
-        <MentionSuggestionBar {...description.suggestionBar} />
-      </KeyboardAvoidingView>
+        <KeyboardStickyView>
+          <MentionSuggestionBar {...description.suggestionBar} />
+        </KeyboardStickyView>
+      </View>
     </>
   );
 }

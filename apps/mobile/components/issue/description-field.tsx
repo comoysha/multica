@@ -56,6 +56,8 @@ export function DescriptionField({
         placeholder={resolvedPlaceholder}
         className="py-2"
         minHeight={MIN_BODY_INPUT_HEIGHT_PX}
+        // The enclosing form scrolls when the full description exceeds the screen.
+        maxHeight={Number.POSITIVE_INFINITY}
         editable={!disabled}
       />
       {images ? <IssueFormImages images={images} disabled={disabled} /> : null}
