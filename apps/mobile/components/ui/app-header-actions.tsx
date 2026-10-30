@@ -33,6 +33,7 @@ export function HeaderActions() {
       />
       <IconButton
         name="add"
+        testID="create-issue"
         iconSize={24}
         onPress={onCreate}
         accessibilityLabel={t("navigation:routes.new_issue")}

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, screen } from "electron";
 import { homedir } from "os";
 import { join } from "path";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "url";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import fixPath from "fix-path";
@@ -625,17 +626,18 @@ if (!gotTheLock) {
   if (coldStartDeepLink) handleDeepLink(coldStartDeepLink);
 
   app.whenReady().then(async () => {
+    const packagedRuntime = app.isPackaged
+      ? JSON.parse(readFileSync(join(app.getAppPath(), "client-runtime.json"), "utf8"))
+      : undefined;
     const viteEnv = import.meta.env as ImportMetaEnv & {
       readonly VITE_API_URL?: string;
       readonly VITE_WS_URL?: string;
       readonly VITE_APP_URL?: string;
-      readonly VITE_BRANCH_API_URL?: string;
-      readonly VITE_BRANCH_APP_URL?: string;
     };
 
     runtimeConfigResult = await loadRuntimeConfig({
       isDev: is.dev,
-      branchEnv: viteEnv.VITE_BRANCH_API_URL ? { apiUrl: viteEnv.VITE_BRANCH_API_URL, appUrl: viteEnv.VITE_BRANCH_APP_URL } : undefined,
+      branchEnv: packagedRuntime?.apiUrl ? { apiUrl: packagedRuntime.apiUrl, appUrl: packagedRuntime.appUrl } : undefined,
       // electron-vite exposes VITE_* on import.meta.env for the main process;
       // keep dev URL overrides on the same source the renderer used before
       // runtime config moved endpoint resolution into main/preload.

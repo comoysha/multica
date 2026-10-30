@@ -96,6 +96,61 @@ editor, select an image, and confirm the upload completes. From the issue editor
 also attach a document and confirm its picker dismisses and the upload completes.
 Unit tests do not replace this device validation.
 
+## Shared client verification
+
+The project `dev-platform.json` declares the `client` and `ios_debug` adapters for
+`~/dev-platform`. The simulator workflow uses the assigned backend and Metro ports;
+Metro uses the worktree port plus 1000. Its smoke flow opens issue creation without
+saving an issue. `DPNativeInputsSHA256` records the app config, dependency manifests,
+lockfile, native patch, and icon. Native changes require a matching development
+client; ordinary JavaScript edits remain incremental.
+
+`app.config.ts` places `apiUrl` and `buildCommit` in Expo `extra.clientRuntime`.
+API requests, WebSockets, and attachment links consume that one configuration
+through `expo-constants`. The artifact inspector reads the same
+`EXConstants.bundle/app.config` from the actual IPA, not build logs or arbitrary
+strings in the binary. Mac builds load their branch endpoint from the same
+`client-runtime.json` that the inspector reads inside `app.asar`.
+
+The simulator runtime probe requests the actual Metro iOS manifest with the same
+headers as Expo's development launcher. It reads
+`extra.expoClient.extra.clientRuntime`, which supplies `Constants.expoConfig` in
+development, and checks the installed bundle ID, project directory, Metro listener,
+JavaScript source, and assigned backend. It never substitutes the generated local
+config or an environment variable for this observation. The response hash is
+recorded for evidence; Expo generates a new manifest ID and timestamp per request,
+so runtime consistency uses the endpoint and source revision, not that hash.
+
+New test databases are cloned from a hashed source snapshot. A non-product
+`dev_platform` schema stores the source ID, snapshot hash, and unique clone ID.
+Verification checks the running backend's effective connection and queries the
+host-published database port in a read-only transaction. Existing databases without
+this marker remain unverified. Never label an old copy with today's snapshot hash.
+
+For an unverified or incomplete copy, run `scripts/dev/dp_env.sh renew-copy --no-start`.
+It verifies service/container ownership, backs up local environment and registry
+files, stops only this worktree's services, and creates a new database from a fresh
+read-only snapshot. The old database remains under its original name. Recovery
+records live in `data/client-recovery/`; omit `--no-start` to restart services after
+cloning. A pending marker from a failed restore blocks subsequent startup.
+
+`python3 scripts/dev/client_adapter.py repair-registry --dry-run` reports conflicts.
+`--apply` only quarantines registrations for the same physical worktree and same
+database when their old ports and recorded processes are inactive. It never drops
+a database. Other database identities or live processes require ownership review.
+
+Before publication, the shared contract verifies local services and data. After
+publication, it reads the artifact hash, revision, and endpoint, then checks that
+the backend, frontend proxy, and public endpoint identify the same running instance.
+The first publication can establish the public route; its absence never counts
+as a successful post-publication check.
+
+`MULTICA_CLIENT_TOOL` and `MULTICA_IOS_HUB`/`MULTICA_MAC_HUB` can point to a reviewed
+dev-platform worktree before that change is merged. Missing contract support or
+`hub.py artifact-path` blocks publication. Targeted checks include
+`python3 scripts/dev/client_adapter_test.py`, related mobile Vitest tests, and the
+desktop client-runtime hook tests. These do not replace simulator/device acceptance.
+
 ## First-time setup
 
 ### Trusted local installations
@@ -114,8 +169,11 @@ These values are included in the built app, so distribute such builds only to
 trusted devices. Without the local variable, the normal sign-in flow remains.
 The worktree setup links these private files from the main checkout. Branch
 packages use the account represented by these credentials to mint a separate
-credential against the worktree's cloned database. Packaging stops if that
-account or its workspaces are missing from the snapshot. The branch credential
+credential against the worktree's cloned database. The packaging script verifies
+the worktree identity, serving process, current revision, and database provenance
+before creating a credential. Conflicting old environment registrations block
+packaging rather than selecting the first matching record. Packaging also stops if
+that account or its workspaces are missing from the snapshot. The branch credential
 and endpoint are included in the package; install it only on trusted devices.
 
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:

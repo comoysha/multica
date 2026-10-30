@@ -143,15 +143,7 @@ import { getCurrentSlug } from "./workspace-store";
 import { parseWithFallback } from "@/lib/parse-response";
 import { createRequestId } from "@/lib/request-id";
 import { buildCommentUpdateBody } from "./revision";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
-
-if (!API_URL) {
-  throw new Error(
-    "EXPO_PUBLIC_API_URL is not set. Add it to the apps/mobile env file for " +
-      "the variant you are running (see apps/mobile/README.md).",
-  );
-}
+import { API_URL } from "@/lib/client-runtime";
 
 export interface LoginResponse {
   token: string;

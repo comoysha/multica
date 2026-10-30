@@ -6,6 +6,7 @@
 #   scripts/dev/dp_env.sh up         起本工作目录的测试台（副本库第一次从快照克隆，之后保留）
 #   scripts/dev/dp_env.sh down       停本工作目录的测试台进程（数据保留）
 #   scripts/dev/dp_env.sh restore    把副本库重置成快照的样子，再起测试台
+#   scripts/dev/dp_env.sh renew-copy [--no-start]   Preserve the old database and prepare a verified new copy.
 #   scripts/dev/dp_env.sh teardown [<工作目录>]   拆工作目录前：停进程、删环境登记、删副本库容器和数据卷、下架分支测试包
 #   scripts/dev/dp_env.sh --check [<工作目录>]    只自检，不改动
 #
@@ -35,7 +36,8 @@ LIVE_CONTAINER="multica-postgres-1"
 LIVE_DB="multica"
 
 CMD="${1:-}"; shift || true
-ROOT="${1:-${DP_REAL_ROOT:-}}"
+ROOT="${DP_REAL_ROOT:-}"
+[[ "${1:-}" == --* ]] || ROOT="${1:-${ROOT}}"
 [[ -n "${ROOT}" ]] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { err "不在 git 仓库中"; exit 1; }
 ROOT="$(cd "${ROOT}" && pwd -P)"
 cd "${ROOT}"
@@ -88,9 +90,11 @@ refresh_golden() {
   local tmp="${GOLDEN}.tmp.$$"
   if docker exec "${LIVE_CONTAINER}" pg_dump -U multica -Fc --no-owner "${LIVE_DB}" >"${tmp}" 2>/dev/null && [[ -s "${tmp}" ]]; then
     mv "${tmp}" "${GOLDEN}"
+    python3 scripts/dev/client_adapter.py snapshot-record
     log "已刷新正式库快照 ${GOLDEN}"
   else
     rm -f "${tmp}"
+    [[ "${1:-}" != "required" ]] || { err "A fresh read-only source snapshot is required; the existing copy was preserved."; exit 1; }
     [[ -s "${GOLDEN}" ]] || { err "导不出正式库快照，也没有旧快照。"; exit 1; }
     log "导不出正式库快照，沿用旧快照 ${GOLDEN}"
   fi
@@ -127,6 +131,7 @@ apply_ports() {
   env_set POSTGRES_PORT "${pg_port}"
   env_set DATABASE_URL "postgres://multica:multica@localhost:${pg_port}/${db}?sslmode=disable"
   env_set FRONTEND_PORT "${port}"
+  env_set METRO_PORT "$((port + 1000))"
   env_set FRONTEND_ORIGIN "${origin}"
   env_set MULTICA_APP_URL "${origin}"
   env_set GOOGLE_REDIRECT_URI "${origin}/auth/callback"
@@ -154,7 +159,7 @@ cmd_up() {
   # 早先建的工作目录网页还开在别的端口：起测试台时顺手改成底座分的端口。
   # make up 里的环境脚本另有一套端口登记，靠 DEV_WEB_PORT 让它也用这个端口。
   if [[ -n "${DP_PORT:-}" && -f "${ENV_FILE}" ]]; then
-    [[ "$(env_get FRONTEND_PORT)" == "${DP_PORT}" && "$(env_get POSTGRES_PORT)" == "$((DP_PORT + 20000))" ]] || {
+    [[ "$(env_get FRONTEND_PORT)" == "${DP_PORT}" && "$(env_get POSTGRES_PORT)" == "$((DP_PORT + 20000))" && "$(env_get METRO_PORT)" == "$((DP_PORT + 1000))" ]] || {
       apply_ports "${DP_PORT}"; log "网页改开在底座分的端口 ${DP_PORT}"; }
     export DEV_WEB_PORT="${DP_PORT}"
   fi
@@ -179,17 +184,21 @@ clone_from_golden() {
   db="$(env_get POSTGRES_DB)"
   [[ -n "${db}" && "${db}" != "${LIVE_DB}" ]] || { err "副本库名不对：${db:-空}"; exit 1; }
   [[ -s "${ROOT}/data/golden/multica.dump" ]] || { err "没有快照 data/golden/multica.dump，先跑 setup。"; exit 1; }
+  [[ ! -e "${ROOT}/data/client-clone-pending.json" ]] || { err "An incomplete clone is recorded. Preserve it and run renew-copy; refusing to start it."; exit 1; }
   exists="$(pg psql -U multica -d postgres -Atc "select 1 from pg_database where datname='${db}'" || true)"
   if [[ "${exists}" == "1" && "$1" != "reset" ]]; then
+    [[ -f "${ROOT}/data/client-data.json" ]] || { err "Existing test database has no verified clone provenance. Run renew-copy to preserve it and create a verified copy."; exit 1; }
     return 0
   fi
+  python3 scripts/dev/client_adapter.py clone-prepare
   if [[ "${exists}" == "1" ]]; then
     make down >/dev/null 2>&1 || true
     pg psql -U multica -d postgres -qc "DROP DATABASE \"${db}\" WITH (FORCE)"
   fi
   pg psql -U multica -d postgres -qc "CREATE DATABASE \"${db}\""
-  pg pg_restore -U multica -d "${db}" --no-owner --no-acl <"${ROOT}/data/golden/multica.dump" \
+  pg pg_restore -U multica -d "${db}" --no-owner --no-acl <"${ROOT}/data/client-restore.dump" \
     || { err "从快照克隆副本库失败"; exit 1; }
+  python3 scripts/dev/client_adapter.py clone-record
   log "已从正式库快照克隆副本库 ${db}"
 }
 
@@ -235,6 +244,9 @@ case "${CMD}" in
   setup) cmd_setup ;;
   up) cmd_up ;;
   restore) cmd_up reset ;;
+  refresh-snapshot) guard; refresh_golden required ;;
+  prepare-copy) guard; clone_from_golden keep ;;
+  renew-copy) python3 scripts/dev/client_adapter.py renew-copy "${@}" ;;
   --check) cmd_check ;;
   down) cmd_down ;;
   teardown) cmd_teardown ;;

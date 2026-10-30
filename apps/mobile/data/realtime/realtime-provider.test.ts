@@ -30,6 +30,9 @@ vi.mock("@/data/auth-store", () => ({ useAuthStore: () => lifecycle.userId }));
 vi.mock("@/data/workspace-store", () => ({ useWorkspaceStore: () => lifecycle.wsSlug }));
 vi.mock("@/data/secure-storage", () => ({ getToken: async () => "token" }));
 vi.mock("@/data/api", () => ({ api: { getToken: () => "token" } }));
+vi.mock("expo-constants", () => ({ default: {
+  expoConfig: { extra: { clientRuntime: { apiUrl: "https://example.test", buildCommit: "fixture" } } },
+} }));
 
 // Run the provider's effect and its actual WSClient, without rendering RN.
 class MockWebSocket {
@@ -49,7 +52,6 @@ describe("RealtimeProvider foreground recovery", () => {
     lifecycle.onAppState = undefined;
     MockWebSocket.instances = [];
     vi.stubGlobal("WebSocket", MockWebSocket);
-    vi.stubEnv("EXPO_PUBLIC_API_URL", "https://example.test");
     vi.spyOn(console, "info").mockImplementation(() => {});
   });
 

@@ -2,10 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api";
 
-// api.ts refuses to load without a base URL; set it before the import runs.
-vi.hoisted(() => {
-  process.env.EXPO_PUBLIC_API_URL = "https://api.example.test";
-});
+vi.mock("expo-constants", () => ({ default: {
+  expoConfig: { extra: { clientRuntime: { apiUrl: "https://api.example.test", buildCommit: "fixture" } } },
+} }));
 
 // The real store pulls in expo-secure-store; the client only needs the slug.
 vi.mock("@/data/workspace-store", () => ({ getCurrentSlug: () => null }));

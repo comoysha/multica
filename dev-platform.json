@@ -4,7 +4,7 @@
   "base_branch": "main",
   "node": "22",
   "merge": {
-    "checks": "pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck",
+    "checks": "python3 scripts/dev/client_adapter_test.py && bash scripts/dev-env.test.sh && pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck && pnpm -C apps/desktop exec vitest run scripts/client-runtime.test.mjs scripts/mac-update-floor.test.mjs && pnpm -C apps/desktop typecheck:node",
     "method": "squash",
     "on_confirmed": "~/dev-platform/tools/merge/gate.py confirm --linear"
   },
@@ -38,11 +38,11 @@
     "branch_package": {
       "platforms": {
         "ios": {
-          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\\.sh|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
+          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\\.sh|client_adapter\\.py|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
           "publish": "scripts/dev/publish_ios_test_build.sh"
         },
         "mac": {
-          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\\.sh|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
+          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\\.sh|client_adapter\\.py|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
           "publish": "scripts/dev/publish_mac_test_build.sh"
         }
       }
@@ -64,5 +64,184 @@
         ]
       }
     ]
+  },
+  "client": {
+    "version": 1,
+    "backend": {
+      "port_env_file": ".env.worktree",
+      "port_key": "PORT",
+      "health_path": "/health",
+      "identity": {
+        "commit": "commit",
+        "instance": [
+          "pid",
+          "started_at"
+        ],
+        "pid": "pid"
+      }
+    },
+    "testbench": {
+      "port": "worktree"
+    },
+    "public": {
+      "url_command": [
+        "python3",
+        "scripts/dev/client_adapter.py",
+        "public-url"
+      ],
+      "connect_ip_command": [
+        "tailscale",
+        "ip",
+        "-4"
+      ]
+    },
+    "registries": [
+      {
+        "glob": "~/.multica/dev/envs/*/manifest.env",
+        "dir_key": "DIR",
+        "ports": {
+          "backend": "BACKEND_PORT",
+          "testbench": "FRONTEND_PORT"
+        }
+      }
+    ],
+    "data": {
+      "manifest": "data/client-data.json",
+      "probe": {
+        "command": [
+          "python3",
+          "scripts/dev/client_adapter.py",
+          "probe"
+        ],
+        "timeout": 60
+      }
+    },
+    "artifacts": {
+      "ios": {
+        "path_command": [
+          "python3",
+          "scripts/dev/client_adapter.py",
+          "artifact-path",
+          "--platform",
+          "ios"
+        ],
+        "api_target": "public",
+        "inspect": {
+          "command": [
+            "python3",
+            "scripts/dev/client_adapter.py",
+            "inspect",
+            "--platform",
+            "ios",
+            "--artifact",
+            "{artifact}"
+          ],
+          "timeout": 120
+        }
+      },
+      "mac": {
+        "path_command": [
+          "python3",
+          "scripts/dev/client_adapter.py",
+          "artifact-path",
+          "--platform",
+          "mac"
+        ],
+        "api_target": "backend",
+        "inspect": {
+          "command": [
+            "python3",
+            "scripts/dev/client_adapter.py",
+            "inspect",
+            "--platform",
+            "mac",
+            "--artifact",
+            "{artifact}"
+          ],
+          "timeout": 120
+        }
+      }
+    }
+  },
+  "ios_debug": {
+    "bundle_id": "ai.multica.mobile.dev",
+    "native_inputs": [
+      "apps/mobile/app.config.ts",
+      "apps/mobile/package.json",
+      "package.json",
+      "pnpm-lock.yaml",
+      "apps/mobile/assets/icon.png",
+      "apps/mobile/patches/expo-modules-core@57.0.21.patch"
+    ],
+    "native_input_plist_key": "DPNativeInputsSHA256",
+    "scheme": "exp+multica-mobile",
+    "flow": "apps/mobile/.maestro/client-smoke.yaml",
+    "runtime_probe": {
+      "command": [
+        "python3",
+        "scripts/dev/client_adapter.py",
+        "probe-client",
+        "--app-path",
+        "{app_path}",
+        "--metro-url",
+        "{metro_url}"
+      ],
+      "timeout": 45
+    },
+    "database": {
+      "port_offset": 20000,
+      "url_env_file": ".env.worktree",
+      "url_key": "DATABASE_URL"
+    },
+    "environment_registry": {
+      "glob": "~/.multica/dev/envs/*/manifest.env",
+      "dir_key": "DIR",
+      "port_key": "BACKEND_PORT"
+    },
+    "backend": {
+      "owner": "worktree",
+      "port_env_file": ".env.worktree",
+      "port_key": "PORT",
+      "path": "/health",
+      "status": 200
+    },
+    "metro": {
+      "owner": "worktree",
+      "port_env_file": ".env.worktree",
+      "port_key": "METRO_PORT",
+      "path": "/status",
+      "contains": "packager-status:running"
+    },
+    "services": {
+      "backend": {
+        "mode": "oneshot",
+        "command": [
+          "scripts/dev/dp_env.sh",
+          "up"
+        ],
+        "stop": [
+          "scripts/dev/dp_env.sh",
+          "down"
+        ]
+      },
+      "metro": {
+        "command": [
+          "pnpm",
+          "-C",
+          "apps/mobile",
+          "exec",
+          "expo",
+          "start",
+          "--dev-client",
+          "--port",
+          "{metro_port}",
+          "--host",
+          "lan"
+        ],
+        "env": {
+          "EXPO_PUBLIC_API_URL": "http://127.0.0.1:{backend_port}"
+        }
+      }
+    }
   }
 }

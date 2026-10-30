@@ -9,6 +9,14 @@ import createConfig from "./app.config";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("iOS scene lifecycle configuration", () => {
+  it("embeds the same client configuration inspected in the install artifact", () => {
+    vi.stubEnv("EXPO_PUBLIC_API_URL", "https://testbench.example:52101");
+    const config = createConfig({ config: {} } as ConfigContext);
+    expect(config.extra?.clientRuntime).toEqual({
+      apiUrl: "https://testbench.example:52101",
+      buildCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
+  });
   it("resolves native presenters from the foregrounded scene", () => {
     const requireFromTest = createRequire(import.meta.url);
     const requireFromExpo = createRequire(requireFromTest.resolve("expo/package.json"));
