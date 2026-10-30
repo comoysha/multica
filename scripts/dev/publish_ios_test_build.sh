@@ -8,10 +8,9 @@
 #   scripts/dev/publish_ios_test_build.sh --remove [<worktree 目录>]   下架（worktree 收尾时由底座的 remove.sh 自动调用）
 #   scripts/dev/publish_ios_test_build.sh --install-url   只打印安装页地址（只读，取不到则失败）
 #
-# 打包签名、发布到安装页、把测试台端口用 HTTPS 暴露到 Tailscale，都由共用底座的安装页工具
-# ~/dev-platform/services/install-hub/hub.py 完成（不属于本仓库，可用 MULTICA_IOS_HUB 指到别处）。
-# 本脚本只负责：找到本 worktree 测试台的 API 端口、把 Expo 原生工程准备好、
-# 把 EXPO_PUBLIC_API_URL（测试台的 tailnet 地址）烤进 JS bundle，其余交给 hub.py。
+# M4 核验当前测试台并准备限定构建输入，M2 按已提交配方生成原生工程、编译和签名。
+# 安装页只核验回传 IPA/远端证明后发布，不在本机预构建或编译。
+# API 和副本专用凭据按同一输入写入 JS；不传数据库、工作目录身份证或整个 .env。
 #
 # 退出码：0 成功；3 本机没有发包工具（跳过，不算失败）；其余为失败。
 set -euo pipefail
@@ -31,11 +30,12 @@ TEST_DISPLAY_NAME="Multica·分支"
 APP_VARIANT="staging"
 # 改到这些路径才算「涉及手机端或其接口」。手机端直连 Go 后端与 core 的 schema，
 # 这两处改了行为也会影响手机端；按路径判断是轻量近似，可用 MULTICA_IOS_TEST_BUILD=1 强制发。
-IOS_PATH_PATTERN='^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\.sh|client_adapter\.py|testbench_auth\.py|dp_env\.sh)$|scripts/dev-env\.sh$)'
+IOS_PATH_PATTERN='^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\.sh|client_adapter\.py|ios_metro\.py|ios_device_build\.py|ios_remote_env\.py|testbench_auth\.py|dp_env\.sh)$|scripts/dev-env\.sh$)'
 
 # 安装页地址、某个包在不在，一律问 hub.py 的只读命令（base-url / has），不读它旁边的文件：
 # 配置和安装页数据不在程序旁边，那样读会得到空地址、下架会悄悄什么都不做。
-HUB="${MULTICA_IOS_HUB:-${HOME}/dev-platform/services/install-hub/hub.py}"
+PLATFORM="${DEV_PLATFORM_ROOT:-${HOME}/dev-platform}"
+HUB="${MULTICA_IOS_HUB:-${PLATFORM}/services/install-hub/hub.py}"
 
 MODE="publish"
 FORCE=0
@@ -134,25 +134,11 @@ mode_remove() {
 # ~/.multica/dev/envs/<名字>/manifest.env 里，按 DIR 匹配本 worktree；
 # 底座登记的 DP_PORT（如有）优先，可用 MULTICA_TEST_API_PORT 覆盖。
 prepare_client_contract() {
-  CLIENT_TOOL="${MULTICA_CLIENT_TOOL:-${HOME}/dev-platform/tools/client/contract.py}"
+  CLIENT_TOOL="${MULTICA_CLIENT_TOOL:-${PLATFORM}/tools/client/contract.py}"
   CLIENT_CONTRACT_FILE="${WT_ROOT}/data/client-contract-ios.json"
   mkdir -p "${WT_ROOT}/data"
   python3 "${WT_ROOT}/scripts/dev/client_adapter.py" verify >"${CLIENT_CONTRACT_FILE}.tmp" || return 1
   mv "${CLIENT_CONTRACT_FILE}.tmp" "${CLIENT_CONTRACT_FILE}"
-}
-
-# 原生工程（ios/）是 Expo prebuild 生成的、不进 git。每次发包都按发包变体重新生成：
-# worktree 里可能残留别的变体的工程（比如 expo run:ios 生成的 dev 包，workspace 名是
-# MulticaDev 而非 MulticaStaging），而 workspace 名要在 hub --prebuild 重刷之前取好，
-# 不先按同一变体刷一次，xcodebuild 会拿到一个不存在的工程路径。
-# config plugins 重刷（秒级），保证 app.config.ts 的改动每次都生效。
-ensure_native_project() {
-  if [[ ! -d "${WT_ROOT}/node_modules" ]]; then
-    log "首次发包，先安装依赖（pnpm install）…"
-    npx -y pnpm@10.28.2 install --frozen-lockfile
-  fi
-  log "按 ${APP_VARIANT} 变体生成 iOS 原生工程并装 CocoaPods…"
-  (cd "${MOBILE_DIR}" && APP_ENV="${APP_VARIANT}" EXPO_BUNDLE_IDENTIFIER_STAGING="${TEST_BUNDLE_ID}" npx -y pnpm@10.28.2 exec expo prebuild -p ios)
 }
 
 # 同一个提交、同一个测试台地址已经发过，且安装页上还在 → 不重复打包（打一次要几十分钟）。
@@ -186,6 +172,9 @@ mode_publish() {
     exit 1
   fi
 
+  local identity_slug
+  identity_slug="$(jq -r '.slug // empty' "${MANIFEST}")"
+  [[ -n "${identity_slug}" && "${SLUG}" == "${identity_slug}" ]] || { err "DP_SLUG 与当前工作目录身份证不一致。"; exit 1; }
   local api_port backend_port
   prepare_client_contract || exit 1
   api_port="$(jq -r '.worktree_port' "${CLIENT_CONTRACT_FILE}")"
@@ -197,14 +186,6 @@ mode_publish() {
   export EXPO_PUBLIC_LOCAL_AUTH_TOKEN
   EXPO_PUBLIC_LOCAL_AUTH_TOKEN="$(python3 "${WT_ROOT}/scripts/dev/testbench_auth.py" "${backend_port}" "${MOBILE_DIR}/.env.local" EXPO_PUBLIC_LOCAL_AUTH_TOKEN "${WT_ROOT}/data/ios-test-auth.json")" || exit 1
   AUTH_FINGERPRINT="$(printf '%s' "${EXPO_PUBLIC_LOCAL_AUTH_TOKEN}" | shasum -a 256 | cut -d ' ' -f 1)"
-  ensure_native_project
-
-  # Expo 工程的 scheme / workspace 名是 prebuild 按 app.config.ts 生成的，不硬编码。
-  local workspace scheme
-  workspace="$(ls -d "${MOBILE_DIR}"/ios/*.xcworkspace 2>/dev/null | head -1 || true)"
-  [[ -n "${workspace}" ]] || { err "prebuild 后没有找到 ios/*.xcworkspace。"; exit 1; }
-  scheme="$(basename "${workspace}" .xcworkspace)"
-
   INSTALL_URL="$(hub_install_url)" || exit 1
   SERVER_URL="$(jq -r '.public_url' "${CLIENT_CONTRACT_FILE}")"
   PACKAGE_NAME="${APP_NAME} · ${SLUG}"
@@ -223,18 +204,25 @@ mode_publish() {
   if already_published; then
     log "当前提交的测试包已在安装页上，不重复打包（要重打加 --force）。"
   else
-    log "打包并发布 ${SLOT}（连 ${SERVER_URL}），首次编译 React Native 要几十分钟…"
+    log "派发 M2 打包 ${SLOT}（连 ${SERVER_URL}），本机不执行原生编译…"
+    local remote_result artifact remote_receipt
+    remote_result="$(python3 "${WT_ROOT}/scripts/dev/ios_device_build.py" --recipe ios-branch-ipa --json)"
+    artifact="$(jq -r '.artifacts.ipa' <<<"${remote_result}")"
+    remote_receipt="$(jq -r '.result_file' <<<"${remote_result}")"
+    [[ "$(jq -r '.api_url' <<<"${remote_result}")" == "${SERVER_URL}" && "$(jq -r '.auth_fingerprint' <<<"${remote_result}")" == "${AUTH_FINGERPRINT}" ]] || {
+      err "远端构建结果与本次测试台或副本凭据不一致。"; exit 1;
+    }
     "${HUB}" publish \
       --slot "${SLOT}" \
       --name "${PACKAGE_NAME}" \
       --label "${branch_label}" \
-      --project "${workspace}" \
-      --scheme "${scheme}" \
+      --project "${WT_ROOT}" \
+      --scheme MulticaStaging \
       --port "${api_port}" \
       --bundle-id "${TEST_BUNDLE_ID}" \
       --display-name "${TEST_DISPLAY_NAME}" \
-      --prebuild "cd ${MOBILE_DIR} && APP_ENV=${APP_VARIANT} EXPO_BUNDLE_IDENTIFIER_STAGING=${TEST_BUNDLE_ID} npx -y pnpm@10.28.2 exec expo prebuild -p ios" \
-      --setting "CURRENT_PROJECT_VERSION=$(git -C "${WT_ROOT}" rev-list --count HEAD)"
+      --artifact "${artifact}" \
+      --remote-receipt "${remote_receipt}"
     mkdir -p "$(dirname "${STATE_FILE}")"
     jq -n \
       --arg slot "${SLOT}" --arg name "${PACKAGE_NAME}" --arg server "${SERVER_URL}" \

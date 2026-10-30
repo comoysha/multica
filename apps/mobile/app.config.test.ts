@@ -16,6 +16,8 @@ describe("iOS scene lifecycle configuration", () => {
       apiUrl: "https://testbench.example:52101",
       buildCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
     });
+    expect(config.ios?.infoPlist?.DPBuildCommit).toBe(config.extra?.clientRuntime.buildCommit);
+    expect(config.ios?.infoPlist?.DPNativeInputsSHA256).toMatch(/^[0-9a-f]{64}$/);
   });
   it("resolves native presenters from the foregrounded scene", () => {
     const requireFromTest = createRequire(import.meta.url);

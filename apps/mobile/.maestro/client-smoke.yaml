@@ -1,4 +1,4 @@
-appId: ai.multica.mobile.dev
+appId: cn.comosha.multica.staging
 ---
 - extendedWaitUntil:
     visible:

@@ -260,7 +260,7 @@ troubleshooting. The iOS client lives in [`apps/mobile/`](apps/mobile/) — its
 [README](apps/mobile/README.md) covers building it onto your own device.
 
 For projects managed by `~/dev-platform`, `dev-platform.json` declares the client
-contract and simulator flow. Branch packaging verifies the current worktree's
+contract, M2 build recipes, and default physical-iPhone flow (with an explicit simulator override). Branch packaging verifies the current worktree's
 backend process, isolated snapshot database, and actual API configuration inside
 the IPA or DMG. See [the mobile workflow](apps/mobile/README.md#shared-client-verification).
 

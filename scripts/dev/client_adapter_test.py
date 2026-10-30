@@ -145,6 +145,52 @@ class AdapterTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "changed during"):
                 adapter.probe_client(self.app, "http://127.0.0.1:43101")
 
+    def test_physical_probe_consumes_public_manifest_and_installation_receipt(self):
+        manifest = self.client_manifest()
+        config = {"ios_debug": {"bundle_id": "ai.multica.mobile.dev", "runtime_probe": {"api_target": "public"}}}
+        (self.root / "dev-platform.json").write_text(json.dumps(config))
+        device_url = "https://test.example:43101"
+        api = "https://test.example:42101"
+        manifest["launchAsset"]["url"] = device_url + "/index.bundle?platform=ios"
+        manifest["extra"]["expoClient"]["extra"]["clientRuntime"]["apiUrl"] = api
+        session = self.runtime_session(manifest)
+        with mock.patch.object(adapter.requests, "Session", return_value=session), \
+                mock.patch.object(adapter, "metro_owner", return_value={"123"}), \
+                mock.patch.object(adapter, "device_runtime_urls", return_value=(device_url, api)), \
+                mock.patch.object(adapter, "verify_installation", return_value="receipt") as receipt:
+            result = adapter.probe_client(self.app, "http://127.0.0.1:43101", "physical", "phone", device_url, "receipt.json")
+        self.assertEqual(result["api_url"], api)
+        receipt.assert_called_once_with(self.app, "ai.multica.mobile.dev", "phone", "receipt.json")
+        self.assertEqual(session.get.call_args.args[0], "http://127.0.0.1:43101")
+
+    def test_physical_probe_rejects_loopback_js_and_api_in_actual_manifest(self):
+        manifest = self.client_manifest()
+        (self.root / "dev-platform.json").write_text(json.dumps({"ios_debug": {
+            "bundle_id": "ai.multica.mobile.dev", "runtime_probe": {"api_target": "public"}}}))
+        for wrong in ("javascript", "api"):
+            with self.subTest(wrong=wrong):
+                changed = json.loads(json.dumps(manifest))
+                if wrong == "javascript":
+                    changed["extra"]["expoClient"]["extra"]["clientRuntime"]["apiUrl"] = "https://test.example:42101"
+                else:
+                    changed["launchAsset"]["url"] = "https://test.example:43101/index.bundle"
+                with mock.patch.object(adapter.requests, "Session", return_value=self.runtime_session(changed)), \
+                        mock.patch.object(adapter, "metro_owner", return_value={"123"}), \
+                        mock.patch.object(adapter, "device_runtime_urls", return_value=("https://test.example:43101", "https://test.example:42101")), \
+                        mock.patch.object(adapter, "verify_installation"):
+                    with self.assertRaises(ValueError):
+                        adapter.probe_client(self.app, "http://127.0.0.1:43101", "physical", "phone", "https://test.example:43101", "receipt.json")
+
+    def test_physical_probe_requires_receipt_before_network(self):
+        self.client_manifest()
+        (self.root / "dev-platform.json").write_text(json.dumps({"ios_debug": {
+            "bundle_id": "ai.multica.mobile.dev", "runtime_probe": {"api_target": "public"}}}))
+        with mock.patch.object(adapter.requests, "Session") as session, \
+                mock.patch.object(adapter, "device_runtime_urls", return_value=("https://test.example:43101", "https://test.example:42101")):
+            with self.assertRaisesRegex(ValueError, "installation evidence"):
+                adapter.probe_client(self.app, "http://127.0.0.1:43101", "physical", "phone", "https://test.example:43101")
+            session.assert_not_called()
+
     def test_database_probe_uses_host_port_and_read_only_client(self):
         with mock.patch.object(adapter, "run", return_value="{}") as run:
             adapter.database_query("SELECT current_database()")

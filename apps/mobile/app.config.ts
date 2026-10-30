@@ -53,7 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     // icon size from this single PNG.
     icon: "./assets/icon.png",
     ios: {
-      infoPlist: { DPNativeInputsSHA256: nativeInputsSHA256 },
+      infoPlist: { DPNativeInputsSHA256: nativeInputsSHA256, DPBuildCommit: clientRuntime.buildCommit },
       // Expo keeps the top-level portrait policy for iPhone while adding all
       // iPad orientations required for multitasking when tablet support is on.
       supportsTablet: true,

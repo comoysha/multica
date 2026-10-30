@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "bundle_id": "cn.comosha.multica.staging",
+  "steps": [
+    {
+      "action": "launch"
+    },
+    {
+      "action": "assertVisible",
+      "id": "create-issue",
+      "timeout_seconds": 45
+    },
+    {
+      "action": "tap",
+      "id": "create-issue"
+    },
+    {
+      "action": "assertVisible",
+      "id": "new-issue-title",
+      "timeout_seconds": 15
+    }
+  ]
+}

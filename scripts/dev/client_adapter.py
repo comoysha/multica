@@ -74,10 +74,24 @@ def identity():
     return ident
 
 
+def platform_root():
+    return Path(os.environ.get("DEV_PLATFORM_ROOT") or Path.home() / "dev-platform").expanduser()
+
+
+def shared_module(name, relative):
+    path = platform_root() / relative
+    if not path.is_file():
+        raise ValueError("Reviewed shared platform support is not installed")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def hub(platform="ios"):
     return (os.environ.get("MULTICA_MAC_HUB" if platform == "mac" else "MULTICA_IOS_HUB")
             or os.environ.get("MULTICA_IOS_HUB") or os.environ.get("MULTICA_MAC_HUB")
-            or str(Path.home() / "dev-platform/services/install-hub/hub.py"))
+            or str(platform_root() / "services/install-hub/hub.py"))
 
 
 def public_url():
@@ -85,7 +99,7 @@ def public_url():
 
 
 def shared_tool():
-    path = Path(os.environ.get("MULTICA_CLIENT_TOOL", str(Path.home() / "dev-platform/tools/client/contract.py")))
+    path = Path(os.environ.get("MULTICA_CLIENT_TOOL", str(platform_root() / "tools/client/contract.py")))
     if not path.is_file():
         raise ValueError("Shared client contract is not installed; set MULTICA_CLIENT_TOOL to the reviewed platform worktree")
     spec = importlib.util.spec_from_file_location("client_contract", path)
@@ -250,7 +264,38 @@ def metro_owner(port):
     return pids
 
 
-def probe_client(app_path, metro_url):
+def device_runtime_urls(metro_port):
+    saved = env_values(ROOT / ".env.ios-device")
+    if (saved.get("DEV_PLATFORM_IOS_READY_SHA") != run(["git", "rev-parse", "HEAD"])
+            or saved.get("IOS_DEVICE_METRO_LOCAL_PORT") != str(metro_port)):
+        raise ValueError("Device URLs are not ready for this source and Metro port")
+    expected = run([sys.executable, hub(), "url", str(metro_port)])
+    address = urlsplit(expected)
+    if (address.scheme != "https" or not address.hostname or address.hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+            or address.username or address.password or address.path not in ("", "/") or address.query or address.fragment):
+        raise ValueError("Device Metro must use the verified HTTPS route")
+    if saved.get("IOS_DEVICE_METRO_URL") != expected or saved.get("IOS_DEVICE_API_URL") != public_url():
+        raise ValueError("Device URLs differ from the assigned public routes")
+    verified = run([sys.executable, hub(), "expose", "--project", str(ROOT), "--port", str(metro_port), "--check"])
+    if verified != expected:
+        raise ValueError("Actual public Metro route differs from the assigned worktree")
+    return expected, saved["IOS_DEVICE_API_URL"]
+
+
+def verify_installation(app_path, bundle_id, device, receipt_path):
+    receipt = read_json(receipt_path)
+    ui = shared_module("dp_physical_ui", "tools/sim/physical_ui.py")
+    if (receipt.get("status") != "passed" or receipt.get("kind") != "physical"
+            or receipt.get("device") != device or receipt.get("bundle_id") != bundle_id
+            or receipt.get("operation") != "devicectl-install" or receipt.get("data_policy") != "preserve"
+            or receipt.get("source_path") != str(app_path)
+            or receipt.get("source") != {"root": str(ROOT), "git_sha": run(["git", "rev-parse", "HEAD"])}
+            or receipt.get("artifact_sha256") != ui.tree_sha(app_path)):
+        raise ValueError("Physical installation receipt does not match this device and app")
+    return receipt["receipt_id"]
+
+
+def probe_client(app_path, metro_url, device_kind="simulator", device="", device_metro_url="", installation_receipt=""):
     """Read the same iOS manifest requested by Expo's development launcher."""
     ident, env = identity(), env_values()
     address = urlsplit(metro_url)
@@ -265,6 +310,19 @@ def probe_client(app_path, metro_url):
         bundle_id = plistlib.load(stream).get("CFBundleIdentifier")
     if not bundle_id or bundle_id != read_json(ROOT / "dev-platform.json")["ios_debug"]["bundle_id"]:
         raise ValueError("Installed app does not match the configured iOS bundle")
+    cfg = read_json(ROOT / "dev-platform.json")["ios_debug"]
+    public = cfg.get("runtime_probe", {}).get("api_target") == "public"
+    expected_api = f"http://127.0.0.1:{int(env['PORT'])}"
+    bundle_origin = address
+    if public:
+        expected_metro, expected_api = device_runtime_urls(metro_port)
+        bundle_origin = urlsplit(expected_metro)
+    if device_kind == "physical":
+        if not public or device_metro_url != expected_metro or not installation_receipt or not device:
+            raise ValueError("Physical runtime requires assigned public routes and installation evidence")
+        verify_installation(app_path, bundle_id, device, installation_receipt)
+    elif device_kind != "simulator":
+        raise ValueError("Unknown iOS device kind")
     pids = metro_owner(metro_port)
     # Match EXDevLauncherManifestParser; Constants.expoConfig reads extra.expoClient.
     with requests.Session() as session:
@@ -290,9 +348,9 @@ def probe_client(app_path, metro_url):
         raise ValueError("Metro manifest is missing the consumed client runtime configuration") from exc
     if project_root != (ROOT / "apps/mobile").resolve() or manifest_bundle_id != bundle_id:
         raise ValueError("Metro manifest belongs to another project or installed app")
-    if (bundle_url.scheme, bundle_url.hostname, bundle_url.port) != (address.scheme, address.hostname, address.port):
+    if (bundle_url.scheme, bundle_url.hostname, bundle_url.port) != (bundle_origin.scheme, bundle_origin.hostname, bundle_origin.port):
         raise ValueError("Metro manifest loads its JavaScript from another server")
-    if api_url != f"http://127.0.0.1:{int(env['PORT'])}":
+    if api_url != expected_api:
         raise ValueError("Metro client runtime points to another backend")
     if not isinstance(build_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", build_commit):
         raise ValueError("Metro client runtime has no valid source commit")
@@ -451,6 +509,10 @@ def main():
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--app-path", type=Path)
     parser.add_argument("--metro-url")
+    parser.add_argument("--device-kind", choices=("physical", "simulator"), default="simulator")
+    parser.add_argument("--device", default="")
+    parser.add_argument("--device-metro-url", default="")
+    parser.add_argument("--installation-receipt", default="")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--apply", action="store_true")
     mode.add_argument("--dry-run", action="store_true")
@@ -479,7 +541,7 @@ def main():
         elif args.action == "probe-client":
             if not args.app_path or not args.metro_url:
                 parser.error("probe-client requires --app-path and --metro-url")
-            result = probe_client(args.app_path, args.metro_url)
+            result = probe_client(args.app_path, args.metro_url, args.device_kind, args.device, args.device_metro_url, args.installation_receipt)
         elif args.action == "inspect":
             if not args.artifact:
                 parser.error("inspect requires --artifact")
