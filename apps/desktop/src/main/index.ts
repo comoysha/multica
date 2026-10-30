@@ -629,10 +629,13 @@ if (!gotTheLock) {
       readonly VITE_API_URL?: string;
       readonly VITE_WS_URL?: string;
       readonly VITE_APP_URL?: string;
+      readonly VITE_BRANCH_API_URL?: string;
+      readonly VITE_BRANCH_APP_URL?: string;
     };
 
     runtimeConfigResult = await loadRuntimeConfig({
       isDev: is.dev,
+      branchEnv: viteEnv.VITE_BRANCH_API_URL ? { apiUrl: viteEnv.VITE_BRANCH_API_URL, appUrl: viteEnv.VITE_BRANCH_APP_URL } : undefined,
       // electron-vite exposes VITE_* on import.meta.env for the main process;
       // keep dev URL overrides on the same source the renderer used before
       // runtime config moved endpoint resolution into main/preload.

@@ -31,7 +31,7 @@ TEST_DISPLAY_NAME="Multica·分支"
 APP_VARIANT="staging"
 # 改到这些路径才算「涉及手机端或其接口」。手机端直连 Go 后端与 core 的 schema，
 # 这两处改了行为也会影响手机端；按路径判断是轻量近似，可用 MULTICA_IOS_TEST_BUILD=1 强制发。
-IOS_PATH_PATTERN='^(apps/mobile/|server/|packages/core/|scripts/dev/publish_ios_test_build\.sh$)'
+IOS_PATH_PATTERN='^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\.sh|testbench_auth\.py|dp_env\.sh)$|scripts/dev-env\.sh$)'
 
 # 安装页地址、某个包在不在，一律问 hub.py 的只读命令（base-url / has），不读它旁边的文件：
 # 配置和安装页数据不在程序旁边，那样读会得到空地址、下架会悄悄什么都不做。
@@ -155,6 +155,21 @@ discover_api_port() {
   return 1
 }
 
+# The authentication token must be minted against this worktree's backend.
+discover_local_backend_port() {
+  local envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir
+  for d in "${envs_dir}"/*/; do
+    [[ -f "${d}manifest.env" ]] || continue
+    dir="$(sed -n 's/^DIR=//p' "${d}manifest.env" | head -1)"
+    [[ -n "${dir}" ]] || continue
+    if [[ "$(cd "${dir}" 2>/dev/null && pwd -P)" == "${WT_ROOT}" ]]; then
+      sed -n 's/^BACKEND_PORT=//p' "${d}manifest.env" | head -1
+      return 0
+    fi
+  done
+  return 1
+}
+
 # 测试台必须已经起好、能正常响应。本脚本不代为启动：
 # 人工核查用的测试台由合并闸的 gate.py prepare 按 testbench.up（make up）起好，
 # 另起一个只会让包连到别的东西上。
@@ -187,7 +202,7 @@ already_published() {
   hub_has_slot || return 1
   [[ -z "$(git -C "${WT_ROOT}" status --porcelain=v1 -- . ':(exclude)apps/mobile/ios' ':(exclude)data/ios-test-build.json' 2>/dev/null)" ]] || return 1
   [[ "$(jq -r '.sha // empty' "${STATE_FILE}")" == "$(git -C "${WT_ROOT}" rev-parse HEAD)" ]] || return 1
-  [[ "$(jq -r '.server // empty' "${STATE_FILE}")" == "${SERVER_URL}" ]]
+  [[ "$(jq -r '.server // empty' "${STATE_FILE}")" == "${SERVER_URL}" && "$(jq -r '.auth_fingerprint // empty' "${STATE_FILE}")" == "${AUTH_FINGERPRINT}" ]]
 }
 
 print_summary() {
@@ -212,12 +227,15 @@ mode_publish() {
     exit 1
   fi
 
-  local api_port
+  local api_port backend_port
   api_port="$(discover_api_port)" || { err "找不到本 worktree 的测试台端口（先 make up / make worktree-env）。"; err "也可以显式给 MULTICA_TEST_API_PORT=<端口>。"; exit 1; }
   require_testbench "${api_port}" || exit 1
-  # Worktree databases do not share the main installation's PATs. The linked
-  # apps/mobile/.env.local must not lock a branch build into an invalid token.
-  export EXPO_PUBLIC_LOCAL_AUTH_TOKEN=""
+  # Override the linked main credential with a token minted in this testbench.
+  backend_port="$(discover_local_backend_port)" || { err "找不到本 worktree 的后端端口。"; exit 1; }
+  require_testbench "${backend_port}" || exit 1
+  export EXPO_PUBLIC_LOCAL_AUTH_TOKEN
+  EXPO_PUBLIC_LOCAL_AUTH_TOKEN="$(python3 "${WT_ROOT}/scripts/dev/testbench_auth.py" "${backend_port}" "${MOBILE_DIR}/.env.local" EXPO_PUBLIC_LOCAL_AUTH_TOKEN "${WT_ROOT}/data/ios-test-auth.json")" || exit 1
+  AUTH_FINGERPRINT="$(printf '%s' "${EXPO_PUBLIC_LOCAL_AUTH_TOKEN}" | shasum -a 256 | cut -d ' ' -f 1)"
   ensure_native_project
 
   # Expo 工程的 scheme / workspace 名是 prebuild 按 app.config.ts 生成的，不硬编码。
@@ -259,9 +277,9 @@ mode_publish() {
     mkdir -p "$(dirname "${STATE_FILE}")"
     jq -n \
       --arg slot "${SLOT}" --arg name "${PACKAGE_NAME}" --arg server "${SERVER_URL}" \
-      --arg install "${INSTALL_URL}" --arg sha "$(git -C "${WT_ROOT}" rev-parse HEAD)" \
+      --arg auth "${AUTH_FINGERPRINT}" --arg install "${INSTALL_URL}" --arg sha "$(git -C "${WT_ROOT}" rev-parse HEAD)" \
       --arg at "$(date '+%Y-%m-%d %H:%M:%S %Z')" \
-      '{slot:$slot, name:$name, server:$server, install_url:$install, sha:$sha, published_at:$at}' \
+      '{slot:$slot, name:$name, server:$server, install_url:$install, sha:$sha, published_at:$at, auth_fingerprint:$auth}' \
       >"${STATE_FILE}"
   fi
 

@@ -112,7 +112,11 @@ apps/desktop/.env.local: VITE_LOCAL_AUTH_TOKEN=<personal access token>
 Use a separate token per client so either installation can be revoked alone.
 These values are included in the built app, so distribute such builds only to
 trusted devices. Without the local variable, the normal sign-in flow remains.
-The worktree setup links these private files from the main checkout.
+The worktree setup links these private files from the main checkout. Branch
+packages use the account represented by these credentials to mint a separate
+credential against the worktree's cloned database. Packaging stops if that
+account or its workspaces are missing from the snapshot. The branch credential
+and endpoint are included in the package; install it only on trusted devices.
 
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:
 

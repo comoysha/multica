@@ -1214,6 +1214,8 @@ Start the rest with 'make up C=api,web', or run 'make up C=daemon' from your own
       offset="$(allocate_offset "$REPO_ROOT")" || die "No free slot left; run 'make gc' or 'make list'."
       local new_backend=$((18080 + offset)) new_frontend=$((13000 + offset))
       local new_db="multica_$(slugify "$(basename "$REPO_ROOT")")_${offset}"
+      # The dev-platform testbench has already cloned its own database.
+      [ "${MULTICA_PRESERVE_WORKTREE_DATABASE:-0}" != 1 ] || new_db="$POSTGRES_DB"
       rewrite_env_ports "$ENV_FILE" "$offset" "$new_backend" "$new_frontend" "$new_db"
       load_env_file "$ENV_FILE"
       info "Allocated slot $offset — backend $new_backend, frontend $new_frontend, database $new_db"

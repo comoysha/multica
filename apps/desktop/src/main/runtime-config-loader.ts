@@ -13,12 +13,21 @@ import {
 export async function loadRuntimeConfig(options: {
   isDev: boolean;
   env: RuntimeConfigEnv;
+  branchEnv?: RuntimeConfigEnv;
   configPath?: string;
   userDataConfigPath?: string;
 }): Promise<RuntimeConfigResult> {
   if (options.isDev) {
     try {
       return { ok: true, config: runtimeConfigFromDevEnv(options.env) };
+    } catch (err) {
+      return { ok: false, error: { message: errorMessage(err) } };
+    }
+  }
+
+  if (options.branchEnv) {
+    try {
+      return { ok: true, config: runtimeConfigFromDevEnv(options.branchEnv) };
     } catch (err) {
       return { ok: false, error: { message: errorMessage(err) } };
     }

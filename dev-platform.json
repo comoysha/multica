@@ -38,11 +38,11 @@
     "branch_package": {
       "platforms": {
         "ios": {
-          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/publish_ios_test_build\\.sh$)",
+          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\\.sh|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
           "publish": "scripts/dev/publish_ios_test_build.sh"
         },
         "mac": {
-          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/publish_mac_test_build\\.sh$)",
+          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\\.sh|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
           "publish": "scripts/dev/publish_mac_test_build.sh"
         }
       }
