@@ -16,7 +16,7 @@
  *
  * Properties (status / priority / assignee / labels / project / due_date)
  * are NOT edited here — they have dedicated chip pickers on the detail page.
- * This screen only owns the two free-text fields.
+ * This screen owns the free-text fields and new description images.
  */
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -34,6 +34,7 @@ import { useQuery } from "@tanstack/react-query";
 import { stripChannelMediaMarkers } from "@multica/core/types";
 import { Text } from "@/components/ui/text";
 import { DescriptionField } from "@/components/issue/description-field";
+import { useIssueFormImages } from "@/components/issue/use-issue-form-images";
 import {
   MAX_MENTION_SUGGESTION_HEIGHT,
   MentionSuggestionBar,
@@ -44,6 +45,7 @@ import { useUpdateIssue } from "@/data/mutations/issues";
 import { buildIssueTextUpdate } from "@/data/issue-edit";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import { useT } from "@/lib/i18n";
+import { descriptionWithImages } from "@/lib/issue-form-images";
 import { useMentionInput } from "@/lib/use-mention-input";
 
 export default function EditIssue() {
@@ -57,6 +59,7 @@ export default function EditIssue() {
   const [initialTitle, setInitialTitle] = useState("");
   const [initialDescription, setInitialDescription] = useState("");
   const description = useMentionInput();
+  const images = useIssueFormImages();
   const [seeded, setSeeded] = useState(false);
   // Seed once when data arrives, before committing the form. Background
   // refetches must not overwrite edits already in progress.
@@ -78,12 +81,17 @@ export default function EditIssue() {
     return (
       title.trim() !== initialTitle ||
       currentDescription.trim() !==
-        stripChannelMediaMarkers(initialDescription).trim()
+        stripChannelMediaMarkers(initialDescription).trim() ||
+      images.attachments.length > 0
     );
-  }, [detail.data, seeded, title, initialTitle, currentDescription, initialDescription]);
+  }, [detail.data, seeded, title, initialTitle, currentDescription, initialDescription, images.attachments.length]);
 
   const canSave =
-    seeded && title.trim().length > 0 && dirty && !update.isPending;
+    seeded &&
+    title.trim().length > 0 &&
+    dirty &&
+    !update.isPending &&
+    images.attachments.every((image) => image.status === "completed");
 
   const onCancel = useCallback(() => {
     if (!dirty) {
@@ -112,7 +120,13 @@ export default function EditIssue() {
     // text baselines until this screen has a conflict reconciliation flow;
     // otherwise a real 409 would leave the draft in an unrecoverable retry
     // loop. Web/desktop keep baseline protection with their compare UI.
-    const patch = buildIssueTextUpdate(title, currentDescription);
+    const patch = {
+      ...buildIssueTextUpdate(title, descriptionWithImages(
+        currentDescription,
+        images.completed.map((image) => image.url),
+      )),
+      attachment_ids: images.completed.map((image) => image.id),
+    };
     update.mutate(patch, {
       onSuccess: () => router.back(),
       onError: (err) => {
@@ -122,7 +136,7 @@ export default function EditIssue() {
         );
       },
     });
-  }, [canSave, title, currentDescription, update, t]);
+  }, [canSave, title, currentDescription, images.completed, update, t]);
 
   const headerLeft = useCallback(
     () => (
@@ -187,6 +201,7 @@ export default function EditIssue() {
                 <DescriptionField
                   description={description}
                   disabled={update.isPending}
+                  images={images}
                 />
               </Field>
             </>

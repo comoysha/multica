@@ -6,10 +6,6 @@
  * toolbar. Property chips are part of the form, not pinned above keyboard.
  * MentionSuggestionBar floats above keyboard only when the user is mid-@.
  *
- * No markdown toolbar / upload buttons in v1: mobile users creating an
- * issue rarely format markdown, and attachment upload is deferred to a
- * later release (see plan-issue-majestic-rabin.md "skip uploads").
- *
  * Mention pipeline shares `useMentionInput` with `issue/[id]/new-comment.tsx`
  * — both surfaces produce canonical `[@name](mention://type/id)` markdown
  * recognised by util.ParseMentions on the server.
@@ -32,16 +28,19 @@ import {
   MentionSuggestionBar,
 } from "@/components/issue/mention-suggestion-bar";
 import { DescriptionField } from "@/components/issue/description-field";
+import { useIssueFormImages } from "@/components/issue/use-issue-form-images";
 import { MOBILE_PLACEHOLDER_COLOR } from "@/components/ui/input-tokens";
 import { useCreateIssue } from "@/data/mutations/issues";
 import { useNewIssueDraftStore } from "@/data/stores/new-issue-draft-store";
 import { useMentionInput } from "@/lib/use-mention-input";
 import { useT } from "@/lib/i18n";
+import { descriptionWithImages } from "@/lib/issue-form-images";
 
 export default function NewIssueModal() {
   const { t } = useT("issues");
   const [title, setTitle] = useState("");
   const description = useMentionInput();
+  const images = useIssueFormImages();
   // Attribute chips (status / priority / assignee / due date / project)
   // live in `useNewIssueDraftStore` so the new-issue-picker/* formSheet
   // routes can read and write the same values without a parent-child
@@ -64,16 +63,23 @@ export default function NewIssueModal() {
   const createIssue = useCreateIssue();
   const isSubmitting = createIssue.isPending;
 
-  const canSubmit = !isSubmitting && title.trim().length > 0;
+  const canSubmit =
+    !isSubmitting &&
+    images.attachments.every((image) => image.status === "completed") &&
+    title.trim().length > 0;
 
   const onSubmit = useCallback(async () => {
     const trimmedTitle = title.trim();
     if (trimmedTitle.length === 0) return;
-    const finalDescription = description.serialize().trim();
+    const finalDescription = descriptionWithImages(
+      description.serialize(),
+      images.completed.map((image) => image.url),
+    );
     try {
       await createIssue.mutateAsync({
         title: trimmedTitle,
         description: finalDescription || undefined,
+        attachment_ids: images.completed.map((image) => image.id),
         status,
         priority,
         ...(assignee
@@ -92,6 +98,7 @@ export default function NewIssueModal() {
   }, [
     title,
     description,
+    images,
     status,
     priority,
     assignee,
@@ -142,6 +149,7 @@ export default function NewIssueModal() {
           <DescriptionField
             description={description}
             disabled={isSubmitting}
+            images={images}
           />
           <CreateFormAttributeRow />
         </KeyboardAwareScrollView>

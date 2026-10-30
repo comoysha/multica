@@ -18,15 +18,19 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import type { UseMentionInputReturn } from "@/lib/use-mention-input";
 import { continuousCorners } from "@/lib/radius";
+import { IssueFormImages } from "./issue-form-images";
+import type { useIssueFormImages } from "./use-issue-form-images";
 
 export function DescriptionField({
   description,
   disabled,
   placeholder,
+  images,
 }: {
   description: UseMentionInputReturn;
   disabled: boolean;
   placeholder?: string;
+  images?: ReturnType<typeof useIssueFormImages>;
 }) {
   const { t } = useT("issues");
   const [focused, setFocused] = useState(false);
@@ -35,6 +39,7 @@ export function DescriptionField({
     <View
       className={cn(
         "rounded-xl border px-3",
+        images && "pb-2",
         focused
           ? "border-primary/30 bg-secondary"
           : "border-transparent bg-secondary/40",
@@ -55,6 +60,7 @@ export function DescriptionField({
         maxHeight={Number.POSITIVE_INFINITY}
         editable={!disabled}
       />
+      {images ? <IssueFormImages images={images} disabled={disabled} /> : null}
     </View>
   );
 }
