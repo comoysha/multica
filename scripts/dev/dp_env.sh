@@ -168,7 +168,7 @@ cmd_up() {
     sleep 1
   done
   clone_from_golden "${1:-keep}"
-  make up
+  MULTICA_PRESERVE_WORKTREE_DATABASE=1 make up
 }
 
 pg() { docker compose exec -T postgres "$@"; }

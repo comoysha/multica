@@ -100,6 +100,17 @@ describe("loadRuntimeConfig", () => {
     }
   });
 
+  it("uses the packaged branch endpoint ahead of shared config", async () => {
+    const result = await loadRuntimeConfig({
+      isDev: false, env: {}, branchEnv: { apiUrl: "http://127.0.0.1:18589", appUrl: "http://127.0.0.1:42103" },
+      userDataConfigPath: "/missing/branch.json", configPath: "/missing/shared.json",
+    });
+    expect(result).toEqual({ ok: true, config: {
+      schemaVersion: 1, apiUrl: "http://127.0.0.1:18589",
+      wsUrl: "ws://127.0.0.1:18589/ws", appUrl: "http://127.0.0.1:42103",
+    } });
+  });
+
   it("prefers a per-variant userData config over the shared desktop.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "multica-desktop-config-"));
     const userDataConfigPath = join(dir, "runtime-config.json");

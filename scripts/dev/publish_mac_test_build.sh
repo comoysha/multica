@@ -11,9 +11,7 @@
 # 打 dmg、发布到安装页、把测试台端口用 HTTPS 暴露到 Tailscale，都由共用底座的安装页工具
 # ~/dev-platform/services/install-hub/hub.py 完成（不属于本仓库，可用 MULTICA_MAC_HUB 指到别处）。
 # 本脚本只负责：找到本 worktree 测试台的端口、确认依赖已安装、
-# 发完把本机地址写进分支包自己的 userData 配置（runtime-config.json），
-# 分支包启动时优先读它（见 apps/desktop/src/main/runtime-config-loader.ts），
-# 不碰正式版读的 ~/.multica/desktop.json。
+# 把本机测试台地址和专用凭据写入本次构建，互不影响其他分支包和正式版。
 #
 # 退出码：0 成功；3 本机没有发包工具（跳过，不算失败）；其余为失败。
 set -euo pipefail
@@ -27,7 +25,7 @@ TEST_BUNDLE_ID="cn.comosha.multica.desktop.staging"
 TEST_DISPLAY_NAME="Multica·分支"
 # 改到这些路径才算「涉及桌面端或其接口」。桌面端与 views/ui/core 共享组件和 schema、
 # 直连 Go 后端；按路径判断是轻量近似，可用 MULTICA_MAC_TEST_BUILD=1 强制发。
-MAC_PATH_PATTERN='^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/publish_mac_test_build\.sh$)'
+MAC_PATH_PATTERN='^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\.sh|testbench_auth\.py|dp_env\.sh)$|scripts/dev-env\.sh$)'
 
 # 安装页地址、某个包在不在，一律问 hub.py 的只读命令（base-url / has），不读它旁边的文件。
 HUB="${MULTICA_MAC_HUB:-${HOME}/dev-platform/services/install-hub/hub.py}"
@@ -195,15 +193,12 @@ already_published() {
   hub_has_slot || return 1
   [[ -z "$(git -C "${WT_ROOT}" status --porcelain=v1 -- . ':(exclude)data/mac-test-build.json' 2>/dev/null)" ]] || return 1
   [[ "$(jq -r '.sha // empty' "${STATE_FILE}")" == "$(git -C "${WT_ROOT}" rev-parse HEAD)" ]] || return 1
-  [[ "$(jq -r '.server // empty' "${STATE_FILE}")" == "${SERVER_URL}" ]]
+  [[ "$(jq -r '.server // empty' "${STATE_FILE}")" == "${SERVER_URL}" && "$(jq -r '.auth_fingerprint // empty' "${STATE_FILE}")" == "${AUTH_FINGERPRINT}" && "$(jq -r '.local_api // empty' "${STATE_FILE}")" == "${LOCAL_API_URL}" && "$(jq -r '.local_app // empty' "${STATE_FILE}")" == "${LOCAL_APP_URL}" ]]
 }
 
-# 把测试台地址写进分支包自己的 userData 配置。打包出来的 App 启动时优先读这个文件，
-# 与正式版读的 ~/.multica/desktop.json 互不干扰；先写后装也没问题（装不装都由用户点）。
+# Keep automatic updates disabled for branch packages.
 write_variant_config() {
   mkdir -p "$(dirname "${VARIANT_CONFIG}")"
-  jq -n --arg api "${LOCAL_API_URL}" --arg app "${LOCAL_APP_URL}" \
-    '{schemaVersion:1, apiUrl:$api, appUrl:$app}' >"${VARIANT_CONFIG}"
   # A branch package must stay on the exact build under review. The shipped
   # updater UI remains available, but automatic GitHub updates stay off here.
   jq -n '{automaticUpdates:false}' >"${VARIANT_UPDATER_PREFS}"
@@ -236,12 +231,16 @@ mode_publish() {
   require_testbench "${api_port}" || exit 1
   backend_port="$(discover_local_backend_port)" || { err "找不到本 worktree 的后端端口。"; exit 1; }
   require_testbench "${backend_port}" || exit 1
+  export VITE_LOCAL_AUTH_TOKEN
+  VITE_LOCAL_AUTH_TOKEN="$(python3 "${WT_ROOT}/scripts/dev/testbench_auth.py" "${backend_port}" "${DESKTOP_DIR}/.env.local" VITE_LOCAL_AUTH_TOKEN "${WT_ROOT}/data/mac-test-auth.json")" || exit 1
+  AUTH_FINGERPRINT="$(printf '%s' "${VITE_LOCAL_AUTH_TOKEN}" | shasum -a 256 | cut -d ' ' -f 1)"
   ensure_deps
 
   INSTALL_URL="$(hub_install_url)" || exit 1
   SERVER_URL="$("${HUB}" url "${api_port}")"
   LOCAL_API_URL="http://127.0.0.1:${backend_port}"
   LOCAL_APP_URL="http://127.0.0.1:${api_port}"
+  export VITE_BRANCH_API_URL="${LOCAL_API_URL}" VITE_BRANCH_APP_URL="${LOCAL_APP_URL}"
   PACKAGE_NAME="Multica · ${SLUG} · Mac"
   # 分支包不讲版本号：它是临时的，要认的是「哪个分支、哪个 PR」。PR 号问不到就只写分支名。
   local pr_number branch_label
@@ -264,9 +263,9 @@ mode_publish() {
     mkdir -p "$(dirname "${STATE_FILE}")"
     jq -n \
       --arg slot "${SLOT}" --arg name "${PACKAGE_NAME}" --arg server "${SERVER_URL}" \
-      --arg install "${INSTALL_URL}" --arg sha "$(git -C "${WT_ROOT}" rev-parse HEAD)" \
+      --arg api "${LOCAL_API_URL}" --arg app "${LOCAL_APP_URL}" --arg auth "${AUTH_FINGERPRINT}" --arg install "${INSTALL_URL}" --arg sha "$(git -C "${WT_ROOT}" rev-parse HEAD)" \
       --arg at "$(date '+%Y-%m-%d %H:%M:%S %Z')" \
-      '{slot:$slot, name:$name, server:$server, install_url:$install, sha:$sha, published_at:$at}' \
+      '{slot:$slot, name:$name, server:$server, install_url:$install, sha:$sha, published_at:$at, auth_fingerprint:$auth, local_api:$api, local_app:$app}' \
       >"${STATE_FILE}"
   fi
 
