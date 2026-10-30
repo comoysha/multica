@@ -11,7 +11,7 @@
  * resolve against; the request is silently dropped).
  *
  * Mirrors `packages/core/workspace/avatar-url.ts:resolvePublicFileUrl`
- * exactly. We don't import the core helper because its `getBaseUrl()`
+ * with native loopback upload handling. We don't import the core helper because its `getBaseUrl()`
  * pulls from a singleton ApiClient that lives in `@multica/core/api` —
  * not on the mobile sharing whitelist (apps/mobile/CLAUDE.md "mirror,
  * don't import"). Mobile reads its own `EXPO_PUBLIC_API_URL` from the
@@ -32,9 +32,27 @@ export function resolveAttachmentUrlWithBase(
   baseUrl: string,
 ): string | null {
   if (!rawUrl) return null;
-  if (!rawUrl.startsWith("/")) return rawUrl;
   const trimmedBaseUrl = baseUrl.replace(/\/+$/, "");
-  return `${trimmedBaseUrl}${rawUrl}`;
+  if (rawUrl.startsWith("/")) return `${trimmedBaseUrl}${rawUrl}`;
+
+  // A local test backend may advertise its public /uploads route using its
+  // own loopback address. That address points at the phone when embedded in
+  // issue markdown, so use the app's reachable API origin for this route.
+  // Leave other absolute URLs (including signed CDN links) untouched.
+  if (trimmedBaseUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      if (
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1") &&
+        parsed.pathname.startsWith("/uploads/")
+      ) {
+        return `${trimmedBaseUrl}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch {
+      // Preserve unknown schemes and malformed legacy links as they were.
+    }
+  }
+  return rawUrl;
 }
 
 export function resolveAttachmentUrl(

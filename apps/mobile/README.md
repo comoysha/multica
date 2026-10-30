@@ -92,7 +92,9 @@ build script. Keep normal development builds on the incremental prebuild path.
 For native validation, test a Release cold launch to sign-in, cold and warm
 `multica://` links, background/foreground transitions, and the Debug dev-client
 in each variant. Also open the image picker from profile, chat, and the issue
-editor, select an image, and confirm the upload completes. From the issue editor,
+editor, select an image, and confirm the upload completes. On issue creation and
+editing, enter a description longer than the initial field and confirm the field
+grows to show all lines while the form remains scrollable. From the issue editor,
 also attach a document and confirm its picker dismisses and the upload completes.
 Unit tests do not replace this device validation.
 
@@ -114,8 +116,10 @@ These values are included in the built app, so distribute such builds only to
 trusted devices. Without the local variable, the normal sign-in flow remains.
 The worktree setup links these private files from the main checkout. Branch
 packages use the account represented by these credentials to mint a separate
-credential against the worktree's cloned database. Packaging stops if that
-account or its workspaces are missing from the snapshot. The branch credential
+credential against the worktree's cloned database. The packaging script selects
+the backend registered for this worktree's current frontend port, even when an
+older test environment for the same checkout remains on disk. Packaging stops if
+that account or its workspaces are missing from the snapshot. The branch credential
 and endpoint are included in the package; install it only on trusted devices.
 
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:
