@@ -259,6 +259,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, worktree support, 
 troubleshooting. The iOS client lives in [`apps/mobile/`](apps/mobile/) — its
 [README](apps/mobile/README.md) covers building it onto your own device.
 
+For projects managed by `~/dev-platform`, `dev-platform.json` declares the client
+contract, M2 build recipes, and default physical-iPhone flow (with an explicit simulator override). Branch packaging verifies the current worktree's
+backend process, isolated snapshot database, and actual API configuration inside
+the IPA or DMG. See [the mobile workflow](apps/mobile/README.md#shared-client-verification).
+
 We release most weekdays, so `main` moves quickly — pull often.
 
 ---

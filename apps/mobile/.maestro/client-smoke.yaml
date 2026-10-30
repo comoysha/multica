@@ -1,0 +1,14 @@
+appId: cn.comosha.multica.staging
+---
+- extendedWaitUntil:
+    visible:
+      id: create-issue
+    timeout: 45000
+- tapOn:
+    id: create-issue
+- extendedWaitUntil:
+    visible:
+      id: new-issue-title
+    timeout: 15000
+- assertVisible:
+    id: new-issue-title

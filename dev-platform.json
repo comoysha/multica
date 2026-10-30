@@ -4,7 +4,7 @@
   "base_branch": "main",
   "node": "22",
   "merge": {
-    "checks": "pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck",
+    "checks": "python3 scripts/dev/ios_remote_test.py && python3 scripts/dev/ios_device_test.py && bash apps/mobile/scripts/ios-run.test.sh && python3 scripts/dev/client_adapter_test.py && bash scripts/dev-env.test.sh && pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck && pnpm -C apps/desktop exec vitest run scripts/client-runtime.test.mjs scripts/mac-update-floor.test.mjs && pnpm -C apps/desktop typecheck:node",
     "method": "squash",
     "on_confirmed": "~/dev-platform/tools/merge/gate.py confirm --linear"
   },
@@ -28,6 +28,28 @@
         "paths": "^apps/mobile/",
         "settings": [
           "CURRENT_PROJECT_VERSION={commit_count}"
+        ],
+        "remote_recipe": "production-ipa",
+        "bundle_id": "cn.comosha.multica",
+        "remote_settings": [
+          "EXPO_PUBLIC_API_URL",
+          "EXPO_PUBLIC_WEB_URL"
+        ],
+        "remote_prepare": [
+          "python3",
+          "scripts/dev/ios_production.py",
+          "prepare",
+          "--context",
+          "{context}"
+        ],
+        "remote_inspect": [
+          "python3",
+          "scripts/dev/ios_production.py",
+          "inspect",
+          "--context",
+          "{context}",
+          "--artifact",
+          "{artifact}"
         ]
       },
       "mac": {
@@ -38,11 +60,12 @@
     "branch_package": {
       "platforms": {
         "ios": {
-          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\\.sh|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
-          "publish": "scripts/dev/publish_ios_test_build.sh"
+          "paths": "^(apps/mobile/|server/|packages/core/|scripts/dev/(publish_ios_test_build\\.sh|client_adapter\\.py|ios_metro\\.py|ios_device_build\\.py|ios_remote_env\\.py|ios_toolchain\\.py|ios_production\\.py|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
+          "publish": "scripts/dev/publish_ios_test_build.sh",
+          "remote_recipe": "ios-branch-ipa"
         },
         "mac": {
-          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\\.sh|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
+          "paths": "^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\\.sh|client_adapter\\.py|testbench_auth\\.py|dp_env\\.sh)$|scripts/dev-env\\.sh$)",
           "publish": "scripts/dev/publish_mac_test_build.sh"
         }
       }
@@ -64,5 +87,676 @@
         ]
       }
     ]
+  },
+  "client": {
+    "version": 1,
+    "backend": {
+      "port_env_file": ".env.worktree",
+      "port_key": "PORT",
+      "health_path": "/health",
+      "identity": {
+        "commit": "commit",
+        "instance": [
+          "pid",
+          "started_at"
+        ],
+        "pid": "pid"
+      }
+    },
+    "testbench": {
+      "port": "worktree"
+    },
+    "public": {
+      "url_command": [
+        "python3",
+        "scripts/dev/client_adapter.py",
+        "public-url"
+      ],
+      "connect_ip_command": [
+        "tailscale",
+        "ip",
+        "-4"
+      ]
+    },
+    "registries": [
+      {
+        "glob": "~/.multica/dev/envs/*/manifest.env",
+        "dir_key": "DIR",
+        "ports": {
+          "backend": "BACKEND_PORT",
+          "testbench": "FRONTEND_PORT"
+        }
+      }
+    ],
+    "data": {
+      "manifest": "data/client-data.json",
+      "probe": {
+        "command": [
+          "python3",
+          "scripts/dev/client_adapter.py",
+          "probe"
+        ],
+        "timeout": 60
+      }
+    },
+    "artifacts": {
+      "ios": {
+        "path_command": [
+          "python3",
+          "scripts/dev/client_adapter.py",
+          "artifact-path",
+          "--platform",
+          "ios"
+        ],
+        "api_target": "public",
+        "inspect": {
+          "command": [
+            "python3",
+            "scripts/dev/client_adapter.py",
+            "inspect",
+            "--platform",
+            "ios",
+            "--artifact",
+            "{artifact}"
+          ],
+          "timeout": 120
+        }
+      },
+      "mac": {
+        "path_command": [
+          "python3",
+          "scripts/dev/client_adapter.py",
+          "artifact-path",
+          "--platform",
+          "mac"
+        ],
+        "api_target": "backend",
+        "inspect": {
+          "command": [
+            "python3",
+            "scripts/dev/client_adapter.py",
+            "inspect",
+            "--platform",
+            "mac",
+            "--artifact",
+            "{artifact}"
+          ],
+          "timeout": 120
+        }
+      }
+    }
+  },
+  "ios_debug": {
+    "bundle_id": "cn.comosha.multica.staging",
+    "native_inputs": [
+      "apps/mobile/app.config.ts",
+      "apps/mobile/package.json",
+      "package.json",
+      "pnpm-lock.yaml",
+      "apps/mobile/assets/icon.png",
+      "apps/mobile/patches/expo-modules-core@57.0.21.patch"
+    ],
+    "native_input_plist_key": "DPNativeInputsSHA256",
+    "scheme": "exp+multica-mobile",
+    "flow": "apps/mobile/flows/client-smoke.json",
+    "runtime_probe": {
+      "command": [
+        "python3",
+        "scripts/dev/client_adapter.py",
+        "probe-client",
+        "--app-path",
+        "{app_path}",
+        "--metro-url",
+        "{metro_url}",
+        "--device-kind",
+        "{device_kind}",
+        "--device",
+        "{device}",
+        "--device-metro-url",
+        "{device_metro_url}",
+        "--installation-receipt",
+        "{installation_receipt}"
+      ],
+      "timeout": 45,
+      "api_target": "public"
+    },
+    "database": {
+      "port_offset": 20000,
+      "url_env_file": ".env.worktree",
+      "url_key": "DATABASE_URL"
+    },
+    "environment_registry": {
+      "glob": "~/.multica/dev/envs/*/manifest.env",
+      "dir_key": "DIR",
+      "port_key": "BACKEND_PORT"
+    },
+    "backend": {
+      "owner": "worktree",
+      "port_env_file": ".env.worktree",
+      "port_key": "PORT",
+      "path": "/health",
+      "status": 200
+    },
+    "metro": {
+      "owner": "worktree",
+      "port_env_file": ".env.worktree",
+      "port_key": "METRO_PORT",
+      "path": "/status",
+      "contains": "packager-status:running",
+      "device_url_env_file": ".env.ios-device",
+      "device_url_env": "IOS_DEVICE_METRO_URL",
+      "ready_file": ".env.ios-device"
+    },
+    "services": {
+      "backend": {
+        "mode": "oneshot",
+        "command": [
+          "scripts/dev/dp_env.sh",
+          "up"
+        ],
+        "stop": [
+          "scripts/dev/dp_env.sh",
+          "down"
+        ]
+      },
+      "metro": {
+        "command": [
+          "python3",
+          "scripts/dev/ios_metro.py"
+        ]
+      }
+    },
+    "target": {
+      "kind": "physical",
+      "pool": "default"
+    },
+    "physical_runner": {
+      "team": "8ALC9Q43AC",
+      "mode": "shared"
+    },
+    "physical_app": "build/ios-device/DerivedData/Build/Products/Debug-iphoneos/MulticaStaging.app",
+    "simulator_flow": "apps/mobile/.maestro/client-smoke.yaml"
+  },
+  "remote_build": {
+    "recipes": {
+      "ios-device": {
+        "version": 1,
+        "parameters": [],
+        "steps": [
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_toolchain.py"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "pnpm",
+              "install",
+              "--frozen-lockfile",
+              "--filter",
+              "@multica/mobile..."
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-device",
+              "--",
+              "pnpm",
+              "-C",
+              "apps/mobile",
+              "exec",
+              "expo",
+              "prebuild",
+              "-p",
+              "ios"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-device",
+              "--",
+              "xcodebuild",
+              "-jobs",
+              "1",
+              "build",
+              "-workspace",
+              "apps/mobile/ios/MulticaStaging.xcworkspace",
+              "-scheme",
+              "MulticaStaging",
+              "-sdk",
+              "iphoneos",
+              "-destination",
+              "generic/platform=iOS",
+              "-allowProvisioningUpdates",
+              "DEVELOPMENT_TEAM=8ALC9Q43AC",
+              "CODE_SIGNING_ALLOWED=YES",
+              "CODE_SIGNING_REQUIRED=YES",
+              "CODE_SIGN_STYLE=Automatic",
+              "-quiet",
+              "-configuration",
+              "Debug",
+              "-derivedDataPath",
+              "{output}/device"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "codesign",
+              "--verify",
+              "--strict",
+              "{output}/device/Build/Products/Debug-iphoneos/MulticaStaging.app"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          }
+        ],
+        "artifacts": [
+          {
+            "name": "app",
+            "kind": "app",
+            "path": ".remote-build/device/Build/Products/Debug-iphoneos/MulticaStaging.app"
+          }
+        ],
+        "toolchain": [
+          {
+            "name": "xcode",
+            "argv": [
+              "xcodebuild",
+              "-version"
+            ]
+          },
+          {
+            "name": "node",
+            "argv": [
+              "node",
+              "--version"
+            ]
+          },
+          {
+            "name": "pnpm",
+            "argv": [
+              "pnpm",
+              "--version"
+            ]
+          },
+          {
+            "name": "python",
+            "argv": [
+              "python3",
+              "--version"
+            ]
+          }
+        ],
+        "timeout_seconds": 7200,
+        "disk_required_bytes": 12884901888
+      },
+      "ios-branch-ipa": {
+        "version": 1,
+        "parameters": [],
+        "steps": [
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_toolchain.py"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "pnpm",
+              "install",
+              "--frozen-lockfile",
+              "--filter",
+              "@multica/mobile..."
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-branch-ipa",
+              "--",
+              "pnpm",
+              "-C",
+              "apps/mobile",
+              "exec",
+              "expo",
+              "prebuild",
+              "-p",
+              "ios"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-branch-ipa",
+              "--",
+              "xcodebuild",
+              "-jobs",
+              "1",
+              "archive",
+              "-workspace",
+              "apps/mobile/ios/MulticaStaging.xcworkspace",
+              "-scheme",
+              "MulticaStaging",
+              "-sdk",
+              "iphoneos",
+              "-destination",
+              "generic/platform=iOS",
+              "-allowProvisioningUpdates",
+              "DEVELOPMENT_TEAM=8ALC9Q43AC",
+              "CODE_SIGNING_ALLOWED=YES",
+              "CODE_SIGNING_REQUIRED=YES",
+              "CODE_SIGN_STYLE=Automatic",
+              "-quiet",
+              "-configuration",
+              "Release",
+              "-derivedDataPath",
+              "{output}/archive-derived",
+              "-archivePath",
+              "{output}/MulticaStaging.xcarchive"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-branch-ipa",
+              "--",
+              "xcodebuild",
+              "-exportArchive",
+              "-archivePath",
+              "{output}/MulticaStaging.xcarchive",
+              "-exportPath",
+              "{output}/export",
+              "-exportOptionsPlist",
+              "apps/mobile/scripts/ios-remote-export.plist",
+              "-allowProvisioningUpdates",
+              "-quiet"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          }
+        ],
+        "artifacts": [
+          {
+            "name": "ipa",
+            "kind": "ipa",
+            "path": ".remote-build/export/MulticaStaging.ipa"
+          }
+        ],
+        "toolchain": [
+          {
+            "name": "xcode",
+            "argv": [
+              "xcodebuild",
+              "-version"
+            ]
+          },
+          {
+            "name": "node",
+            "argv": [
+              "node",
+              "--version"
+            ]
+          },
+          {
+            "name": "pnpm",
+            "argv": [
+              "pnpm",
+              "--version"
+            ]
+          },
+          {
+            "name": "python",
+            "argv": [
+              "python3",
+              "--version"
+            ]
+          }
+        ],
+        "timeout_seconds": 7200,
+        "disk_required_bytes": 12884901888
+      },
+      "production-ipa": {
+        "version": 1,
+        "parameters": [],
+        "steps": [
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_toolchain.py"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_production.py",
+              "signing-ready",
+              "--source-commit",
+              "{source_commit}"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai"
+            }
+          },
+          {
+            "argv": [
+              "pnpm",
+              "install",
+              "--frozen-lockfile",
+              "--filter",
+              "@multica/mobile..."
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "production-ipa",
+              "--",
+              "pnpm",
+              "-C",
+              "apps/mobile",
+              "exec",
+              "expo",
+              "prebuild",
+              "-p",
+              "ios"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "production-ipa",
+              "--",
+              "xcodebuild",
+              "-jobs",
+              "1",
+              "archive",
+              "-workspace",
+              "apps/mobile/ios/Multica.xcworkspace",
+              "-scheme",
+              "Multica",
+              "-sdk",
+              "iphoneos",
+              "-destination",
+              "generic/platform=iOS",
+              "-allowProvisioningUpdates",
+              "DEVELOPMENT_TEAM=8ALC9Q43AC",
+              "CODE_SIGNING_ALLOWED=YES",
+              "CODE_SIGNING_REQUIRED=YES",
+              "CODE_SIGN_STYLE=Automatic",
+              "-quiet",
+              "-configuration",
+              "Release",
+              "-derivedDataPath",
+              "{output}/archive-derived",
+              "-archivePath",
+              "{output}/Multica.xcarchive"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/ios_remote_env.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "production-ipa",
+              "--",
+              "xcodebuild",
+              "-exportArchive",
+              "-archivePath",
+              "{output}/Multica.xcarchive",
+              "-exportPath",
+              "{output}/export",
+              "-exportOptionsPlist",
+              "apps/mobile/scripts/ios-production-export.plist",
+              "-allowProvisioningUpdates",
+              "-quiet"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          }
+        ],
+        "artifacts": [
+          {
+            "name": "ipa",
+            "kind": "ipa",
+            "path": ".remote-build/export/Multica.ipa"
+          }
+        ],
+        "toolchain": [
+          {
+            "name": "xcode",
+            "argv": [
+              "xcodebuild",
+              "-version"
+            ]
+          },
+          {
+            "name": "node",
+            "argv": [
+              "node",
+              "--version"
+            ]
+          },
+          {
+            "name": "pnpm",
+            "argv": [
+              "pnpm",
+              "--version"
+            ]
+          },
+          {
+            "name": "python",
+            "argv": [
+              "python3",
+              "--version"
+            ]
+          }
+        ],
+        "timeout_seconds": 7200,
+        "disk_required_bytes": 12884901888
+      }
+    }
   }
 }

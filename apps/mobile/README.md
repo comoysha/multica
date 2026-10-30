@@ -2,37 +2,16 @@
 
 Expo + React Native iOS client for Multica. Independent from web/desktop — shares types and pure utilities from `@multica/core/`. See [`AGENTS.md`](./AGENTS.md) for mobile architecture and development rules; `package.json` records the current dependency versions.
 
-## Just want to use it on your phone? (no development)
+## Managed iPhone development
 
-Multica isn't on the App Store yet — until that changes, anyone who wants it on their iPhone builds from source. One command:
+This platform-managed checkout builds native iOS artifacts on the registered M2
+build host. M4 dispatches jobs, checks returned artifacts and operates the leased
+phone. Use a task worktree and the shared client workflow below. Existing
+production installations are preserved; the development app uses its own bundle.
 
-```bash
-pnpm ios:mobile:device:prod:release
-```
-
-This connects to the same backend as `multica.ai`, so your existing account just works. To use a private backend or your own bundle ID, copy `apps/mobile/.env.production.example` to `apps/mobile/.env.production.local` and edit the copy — it overrides the committed `.env.production` key by key and is gitignored, so personal values stay local.
-
-**Prerequisites**: Mac with Xcode, a free Apple ID added under Xcode → Settings → Accounts, iPhone connected via USB with [Developer Mode enabled](https://docs.expo.dev/guides/ios-developer-mode/). Walk through Expo's [Set up your environment](https://docs.expo.dev/get-started/set-up-your-environment/) (pick **Development build → iOS Device**) if any of that is missing.
-
-Xcode signs the build with the "Personal Team" your Apple ID automatically owns — created silently the first time you signed into Xcode, no setup needed. The first build downloads CocoaPods + compiles React Native from source — expect 10–20 minutes. Subsequent builds reuse Xcode's cache.
-
-**If Xcode rejects signing with "No matching provisioning profiles found"** — rare, happens if someone has claimed the default bundle id `ai.multica.mobile` on Apple's developer portal. Pick any reverse-domain you own and re-run:
-
-```bash
-export EXPO_BUNDLE_IDENTIFIER_PROD=com.yourname.multica
-pnpm ios:mobile:device:prod:release
-```
-
-**If your Apple ID belongs to more than one Apple Developer team** — a personal team plus an employer's, say — the build signs with the first identity it finds, which may not be the team you meant, and it keeps reusing that choice on every later build. Pin the right one (find the id in the Apple Developer Portal under Membership):
-
-```bash
-export EXPO_APPLE_TEAM_ID=ABCDE12345
-pnpm ios:mobile:device:prod:release
-```
-
-**7-day signing limit**: a free Apple ID signs builds for 7 days. After that, plug back into the Mac and re-run the command to re-sign. An Apple Developer Program account ($99/yr) extends this to 1 year.
-
-Everything below is for app developers — you can ignore the rest if you only wanted a personal install.
+A production remote recipe has not been declared here. Legacy device/production
+commands stop instead of compiling on M4 or silently selecting the staging app.
+Signed development app, branch IPA and shared XCTest driver recipes are available.
 
 ## Scripts
 
@@ -41,18 +20,15 @@ Everything below is for app developers — you can ignore the rest if you only w
 | `pnpm dev:mobile` | Metro only (reuse existing install) | local (`.env.development.local`) |
 | `pnpm dev:mobile:staging` | Metro only (reuse existing install) | staging (`.env.staging`) |
 | `pnpm dev:mobile:prod` | Metro only (reuse existing install) | production (`.env.production`, overridden by `.env.production.local`) |
-| `pnpm ios:mobile` | Full rebuild + install on **iOS Simulator**, Debug | local |
-| `pnpm ios:mobile:staging` | Full rebuild + install on **iOS Simulator**, Debug | staging |
-| `pnpm ios:mobile:prod` | Full rebuild + install on **iOS Simulator**, Debug | production |
-| `pnpm ios:mobile:device` | Full rebuild + install on **USB iPhone**, Debug | local |
-| `pnpm ios:mobile:device:staging` | Full rebuild + install on **USB iPhone**, Debug | staging |
-| `pnpm ios:mobile:device:staging:release` | Full rebuild + install on **USB iPhone**, Release (standalone) | staging |
-| `pnpm ios:mobile:device:prod` | Full rebuild + install on **USB iPhone**, Debug | production |
-| `pnpm ios:mobile:device:prod:release` | Full rebuild + install on **USB iPhone**, Release (standalone) | production |
+| `pnpm ios:mobile` / `pnpm ios:mobile:staging` | Dispatch M2 Debug test-app build; no install | verified worktree public API |
+| `apps/mobile/scripts/ios-run.sh --build-device` | Same managed build-only entry from repo root | verified worktree public API |
+| `scripts/dev/publish_ios_test_build.sh` | Dispatch M2 standalone branch IPA; verify and publish it | verified worktree public API |
+| Shared `ios_debug.py smoke --target simulator --app <existing-app>` | Explicit diagnostic using a compatible built app | verified worktree public API |
 
-`dev:*` runs Metro only — assumes the matching variant is already installed. `ios:mobile*` does a full native rebuild + install.
-
-Bundle id and display name switch on `APP_ENV` (see `app.config.ts`), so Dev / Staging / Production variants can coexist on the same device or simulator.
+Managed native jobs use committed source and shared resource admission. Missing
+remote configuration, account permission or signing assets stops the job. No
+native compiler fallback runs on M4. Manual Metro-only commands above do not
+replace the managed smoke wrapper's ownership and runtime checks.
 
 ### Regenerating iOS after the scene lifecycle migration
 
@@ -96,6 +72,109 @@ editor, select an image, and confirm the upload completes. From the issue editor
 also attach a document and confirm its picker dismisses and the upload completes.
 Unit tests do not replace this device validation.
 
+## Shared client verification
+
+The project `dev-platform.json` declares the `client` and `ios_debug` adapters for
+`~/dev-platform`. Managed acceptance defaults to a registered physical iPhone from
+the shared `default` pool; no phone identifier is stored in this repository.
+The phone uses the separate `cn.comosha.multica.staging` test app, preserving the
+production app and existing data. The JSON smoke flow launches the app and opens
+issue creation without saving an issue. `--target simulator` explicitly selects
+the retained Maestro flow; it cannot satisfy default physical-device acceptance.
+Metro uses the worktree port plus 1000. `DPNativeInputsSHA256` records the app config, dependency manifests,
+lockfile, native patch, and icon. Native changes require a matching development
+client; ordinary JavaScript edits remain incremental.
+
+`app.config.ts` places `apiUrl` and `buildCommit` in Expo `extra.clientRuntime`.
+API requests, WebSockets, and attachment links consume that one configuration
+through `expo-constants`. The artifact inspector reads the same
+`EXConstants.bundle/app.config` from the actual IPA, not build logs or arbitrary
+strings in the binary. Mac builds load their branch endpoint from the same
+`client-runtime.json` that the inspector reads inside `app.asar`.
+
+The runtime probe requests the actual local Metro iOS manifest with the same
+headers as Expo's development launcher. It reads
+`extra.expoClient.extra.clientRuntime`, which supplies `Constants.expoConfig` in
+development, and checks the installed bundle ID, project directory, Metro listener,
+JavaScript source, and assigned public backend. On a phone, it also binds the
+installed app to the shared install receipt (device, bundle, artifact hash and
+source revision). It never substitutes the generated local
+config or an environment variable for this observation. The response hash is
+recorded for evidence; Expo generates a new manifest ID and timestamp per request,
+so runtime consistency uses the endpoint and source revision, not that hash.
+
+The managed Metro wrapper starts only after the copy database and backend are
+verified. It exposes the worktree web proxy and Metro through the existing
+Tailscale install hub, checks both routes, then atomically writes `.env.ios-device`.
+`EXPO_PACKAGER_PROXY_URL` controls the URLs in Expo's actual manifest; the phone's
+API URL is the verified public testbench URL, never the phone's localhost. Local
+listener ownership is still checked against this worktree. Before and after the
+page flow, `hub expose --check` rechecks the existing Metro route without creating
+or changing it. The wrapper supplies
+only a credential minted in the isolated copy and disables automatic dotenv
+loading to prevent production fallback. It stops only its own Metro process group.
+
+The build-only entry is `apps/mobile/scripts/ios-run.sh --build-device` from the
+repository root. M4 verifies the worktree backend and copied database before
+writing the mode-0600 `data/ios-remote-input.json`. The shared allowlist permits only
+this generated file; it contains the public API, source revision, recipe and build
+number, plus a copy-only credential for a standalone branch IPA. Debug builds
+leave that credential empty and receive it later from the managed local Metro.
+No database, worktree identity, private key or complete env file is transferred.
+
+M2 installs locked mobile dependencies, regenerates the staging native project,
+compiles with a generic iOS destination and uses its own team signing identity.
+The input helper validates the shallow checkout and source revision, suppresses
+automatic dotenv loading and redacts the copy credential from build output. Its
+children stay inside the worker's process group for cancellation. M4 checks the
+returned source, signature and artifact, then verifies that the backend instance
+and database identity have not changed. Verified jobs acknowledge remote cleanup
+of the staged private input; local receipt and job records remain for review.
+
+The development app lands at
+`build/ios-device/DerivedData/Build/Products/Debug-iphoneos/MulticaStaging.app`.
+`DPBuildCommit` and `DPNativeInputsSHA256` come from the actual generated Info.plist.
+The shared agent-device XCTest driver is built independently by dev-platform on M2 and verified for the registered phone and signing team. Business projects reuse its tool manifest; they do not declare their own UI driver recipe.
+
+After an approved artifact is available, use the shared
+`tools/sim/ios_debug.py smoke --issue MU-n --dir <worktree>` entry to claim a registered device, install
+without deleting data and validate the actual page. The updated physical, routing
+and resource APIs are supplied by dev-platform PR 118; set `DEV_PLATFORM_ROOT`
+to its reviewed worktree until merged. Simulator use remains an explicit override
+and requires its matching installed staging development client.
+
+New test databases are cloned from a hashed source snapshot. A non-product
+`dev_platform` schema stores the source ID, snapshot hash, and unique clone ID.
+Verification checks the running backend's effective connection and queries the
+host-published database port in a read-only transaction. Existing databases without
+this marker remain unverified. Never label an old copy with today's snapshot hash.
+
+For an unverified or incomplete copy, run `scripts/dev/dp_env.sh renew-copy --no-start`.
+It verifies service/container ownership, backs up local environment and registry
+files, stops only this worktree's services, and creates a new database from a fresh
+read-only snapshot. The old database remains under its original name. Recovery
+records live in `data/client-recovery/`; omit `--no-start` to restart services after
+cloning. A pending marker from a failed restore blocks subsequent startup.
+
+`python3 scripts/dev/client_adapter.py repair-registry --dry-run` reports conflicts.
+`--apply` only quarantines registrations for the same physical worktree and same
+database when their old ports and recorded processes are inactive. It never drops
+a database. Other database identities or live processes require ownership review.
+
+Before publication, the shared contract verifies local services and data. After
+publication, it reads the artifact hash, revision, and endpoint, then checks that
+the backend, frontend proxy, and public endpoint identify the same running instance.
+The first publication can establish the public route; its absence never counts
+as a successful post-publication check.
+
+`MULTICA_CLIENT_TOOL` and `MULTICA_IOS_HUB`/`MULTICA_MAC_HUB` can point to a reviewed
+dev-platform worktree before that change is merged. Missing contract support or
+`hub.py artifact-path` blocks publication. Targeted checks include
+`python3 scripts/dev/client_adapter_test.py`, `python3 scripts/dev/ios_device_test.py`,
+`python3 scripts/dev/ios_remote_test.py`,
+`bash apps/mobile/scripts/ios-run.test.sh`, related mobile Vitest tests, and the
+desktop client-runtime hook tests. These do not replace simulator/device acceptance.
+
 ## First-time setup
 
 ### Trusted local installations
@@ -114,8 +193,11 @@ These values are included in the built app, so distribute such builds only to
 trusted devices. Without the local variable, the normal sign-in flow remains.
 The worktree setup links these private files from the main checkout. Branch
 packages use the account represented by these credentials to mint a separate
-credential against the worktree's cloned database. Packaging stops if that
-account or its workspaces are missing from the snapshot. The branch credential
+credential against the worktree's cloned database. The packaging script verifies
+the worktree identity, serving process, current revision, and database provenance
+before creating a credential. Conflicting old environment registrations block
+packaging rather than selecting the first matching record. Packaging also stops if
+that account or its workspaces are missing from the snapshot. The branch credential
 and endpoint are included in the package; install it only on trusted devices.
 
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:
@@ -131,47 +213,57 @@ For staging builds, export `EXPO_BUNDLE_IDENTIFIER_STAGING=com.yourname.multica.
 
 If your Apple ID belongs to more than one Apple Developer team, also set `EXPO_APPLE_TEAM_ID` to the team that should sign your builds. Unlike the bundle id overrides it applies to every variant, and it is re-applied on each run — so it also fixes a checkout that has already latched onto the wrong team.
 
-## Build it onto your iPhone
+## Run on the registered iPhone
 
-Two paths, depending on what you want to do:
+Remote native recipes first require Xcode 26.4 or newer and Node 22.13.0 or newer on M2.
+The selected build host may set `DEVELOPER_DIR`; the preflight verifies that actual
+Xcode before installing dependencies or querying signing. An older host blocks the
+job and never falls back to compiling on M4.
 
-### Day-to-day development (Mac in front of you)
-
-```bash
-pnpm ios:mobile:device:staging
-```
-
-Produces a **Debug build** with `expo-dev-launcher` embedded. Every launch the app probes Metro on your Mac and pulls fresh JS — perfect for hot-reload, painful when the Mac is asleep or you're on a different WiFi.
-
-### Standalone / "just use it" (walk away from the Mac)
+From a clean, committed task worktree, use the build-only entry above, then run:
 
 ```bash
-pnpm ios:mobile:device:staging:release
+DEV_PLATFORM_ROOT=~/dev-platform ~/dev-platform/tools/sim/ios_debug.py smoke --issue MU-n --dir "$PWD"
 ```
 
-Produces a **Release build**. No `expo-dev-launcher`, no Metro probe, no "Downloading…" screen. Splash → app, exactly like an App Store install. Trade-off: every JS change requires re-running this command.
+The shared workflow starts the isolated local services, claims a registered phone,
+installs the separate test app without deleting its data and asserts the actual
+issue-creation page. The Debug app needs the managed Metro service. A standalone
+branch IPA is built through `scripts/dev/publish_ios_test_build.sh`; its API and
+copy credential are embedded, and its expiry follows its actual provisioning file.
 
-Both paths share the same prerequisites: Mac with Xcode, free Apple ID added under Xcode → Settings → Accounts, iPhone connected via USB with Developer Mode enabled. Follow Expo's [Set up your environment](https://docs.expo.dev/get-started/set-up-your-environment/) — pick **Development build → iOS Device** — if any of that is missing.
+## Explicit simulator diagnostics
 
-First build of either variant downloads CocoaPods + compiles React Native from source — expect 10-20 minutes. Subsequent builds reuse Xcode's DerivedData cache.
+Shared smoke accepts `--target simulator --app <existing-compatible-app>` and the
+YAML `simulator_flow`. Its evidence cannot satisfy physical-device acceptance.
+There is no reviewed remote simulator build recipe yet; raw Expo simulator builds
+stop before compilation. No native compiler runs on M4, including diagnostic paths.
 
-## Try it in the iOS Simulator (no iPhone needed)
+Managed endpoint changes go through the worktree identity and client contract.
+Do not hand-edit a production URL or the phone's localhost into the test build.
 
-```bash
-pnpm ios:mobile:staging
-```
 
-Boots the simulator, builds, installs the dev-client. Faster to iterate than a device build because no signing / provisioning step. Same `dev:mobile:staging` Metro flow afterward.
+## Formal remote release
 
-## 7-day signing limit (device only)
+The fixed install-hub app uses the source-declared `production-ipa` recipe. Prebuild,
+archive and export all run with `APP_ENV=production` and `EXPO_NO_DOTENV=1`. The
+formal bundle is `cn.comosha.multica`; its existing Ad Hoc signing requirement is
+preserved. M2 must have a valid distribution identity for the configured team;
+export uses only `release-testing` and never falls back to development signing.
 
-A free Apple ID signs builds for **7 days only**, Debug and Release both. After that the app refuses to launch on the iPhone. Plug back into the Mac and re-run the corresponding `ios:mobile:device*` script to re-sign. Simulator builds are unaffected. The only workaround for the device limit is an Apple Developer Program account ($99/yr), which extends to 1 year.
+The private install-hub settings remain the authority for formal API/Web URLs.
+The reviewed input schema is `data/ios-production-input.json` inside the remote
+checkout: version, recipe, source_commit, build_number, api_url, web_url, auth_token,
+team, bundle_id and required_signing. Only the prepared single JSON may be
+allowlisted; no full env file or test database is transferred. Package inspection
+checks the actual embedded production environment, API, bundle and commit.
 
-## Pointing at a different backend
-
-Edit `EXPO_PUBLIC_API_URL` in `.env.staging`, `.env.production.local`, or `.env.development.local` (whichever variant you're running). Then:
-
-- For an installed **Debug build**: restart Metro (`pnpm dev:mobile:staging`) so the next JS bundle picks up the new value.
-- For an installed **Release build**: re-run the `ios:mobile:device:staging:release` command — the value is baked into the embedded bundle at build time.
-
-For local backend testing, use your Mac's LAN IP (`ipconfig getifaddr en0`), not `localhost`.
+Credential preparation reads only the existing main checkout's
+`apps/mobile/.env.local` `EXPO_PUBLIC_LOCAL_AUTH_TOKEN` after checking a clean,
+matching main source. The generated single JSON is stored with mode 0600 at
+`INSTALL_HUB_HOME/inputs/multica-ios-production-input.json` (default private
+install-hub state); configure that exact source path in the remote input allowlist.
+No token from a copied database or a newly selected local account may substitute
+for it. The remote worker filters input secrets from logs and removes its task's
+private inputs after successful receipt/package verification. This code path has
+only fake-data validation so far; formal build/publish has not been run.

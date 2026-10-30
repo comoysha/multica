@@ -1,7 +1,7 @@
 /**
  * Pure-function tests for the mobile attachment URL resolver. We exercise
  * the with-base form because `resolveAttachmentUrl` itself is bound at
- * module load to `process.env.EXPO_PUBLIC_API_URL`, which is what we
+ * module load to the embedded client runtime configuration, which is what we
  * intentionally don't want to mutate in tests — the with-base helper is
  * the same code path with the API base passed in explicitly.
  *
@@ -11,7 +11,10 @@
  *   - `composer-attachment-row.tsx`         → completed non-image chip
  *                                             tap → Linking.openURL
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("expo-constants", () => ({ default: {
+  expoConfig: { extra: { clientRuntime: { apiUrl: "https://api.example.test", buildCommit: "fixture" } } },
+} }));
 import {
   resolveAttachmentUrl,
   resolveAttachmentUrlWithBase,
