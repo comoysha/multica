@@ -546,6 +546,7 @@ export function useUpdateIssue(issueId: string) {
         const {
           description: _description,
           description_base: _descriptionBase,
+          attachment_ids: _attachmentIds,
           title_base: _titleBase,
           expected_revision: _expectedRevision,
           ...optimisticPatch
@@ -578,10 +579,13 @@ export function useUpdateIssue(issueId: string) {
         );
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, patch) => {
       qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, issueId) });
       qc.invalidateQueries({ queryKey: issueKeys.myAll(wsId) });
       qc.invalidateQueries({ queryKey: issueKeys.list(wsId) });
+      if (patch.attachment_ids?.length) {
+        qc.invalidateQueries({ queryKey: issueKeys.attachments(wsId, issueId) });
+      }
     },
   });
 }
