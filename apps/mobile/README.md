@@ -92,7 +92,9 @@ build script. Keep normal development builds on the incremental prebuild path.
 For native validation, test a Release cold launch to sign-in, cold and warm
 `multica://` links, background/foreground transitions, and the Debug dev-client
 in each variant. Also open the image picker from profile, chat, and the issue
-editor, select an image, and confirm the upload completes. From the issue editor,
+editor, select an image, and confirm the upload completes. On issue creation and
+editing, enter a description longer than the initial field and confirm the field
+grows to show all lines while the form remains scrollable. From the issue editor,
 also attach a document and confirm its picker dismisses and the upload completes.
 Unit tests do not replace this device validation.
 

@@ -25,9 +25,11 @@ export function useIssueFormImages() {
           }
         : item));
     } catch (err) {
+      const message = err instanceof Error ? err.message : t("common:states.error");
       setAttachments((items) => items.map((item) => item.localId === localId
-        ? { ...item, status: "failed", error: err instanceof Error ? err.message : t("common:states.error") }
+        ? { ...item, status: "failed", error: message }
         : item));
+      Alert.alert(t("common:states.error"), message);
     }
   }, [t]);
 
