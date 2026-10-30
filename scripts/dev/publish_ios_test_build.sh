@@ -142,6 +142,14 @@ discover_api_port() {
     printf '%s\n' "${DP_PORT}"
     return 0
   fi
+  local frontend_port=""
+  if [[ -f "${WT_ROOT}/.env.worktree" ]]; then
+    frontend_port="$(sed -n 's/^FRONTEND_PORT=//p' "${WT_ROOT}/.env.worktree" | tail -1)"
+  fi
+  if [[ -n "${frontend_port}" ]]; then
+    printf '%s\n' "${frontend_port}"
+    return 0
+  fi
   local envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir
   for d in "${envs_dir}"/*/; do
     [[ -f "${d}manifest.env" ]] || continue
@@ -157,15 +165,21 @@ discover_api_port() {
 
 # The authentication token must be minted against this worktree's backend.
 discover_local_backend_port() {
-  local envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir
+  local expected_frontend="${DP_PORT:-}" envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir frontend
+  if [[ -z "${expected_frontend}" && -f "${WT_ROOT}/.env.worktree" ]]; then
+    expected_frontend="$(sed -n 's/^FRONTEND_PORT=//p' "${WT_ROOT}/.env.worktree" | tail -1)"
+  fi
   for d in "${envs_dir}"/*/; do
     [[ -f "${d}manifest.env" ]] || continue
     dir="$(sed -n 's/^DIR=//p' "${d}manifest.env" | head -1)"
     [[ -n "${dir}" ]] || continue
-    if [[ "$(cd "${dir}" 2>/dev/null && pwd -P)" == "${WT_ROOT}" ]]; then
-      sed -n 's/^BACKEND_PORT=//p' "${d}manifest.env" | head -1
-      return 0
+    if [[ "$(cd "${dir}" 2>/dev/null && pwd -P)" != "${WT_ROOT}" ]]; then
+      continue
     fi
+    frontend="$(sed -n 's/^FRONTEND_PORT=//p' "${d}manifest.env" | head -1)"
+    [[ -z "${expected_frontend}" || "${frontend}" == "${expected_frontend}" ]] || continue
+    sed -n 's/^BACKEND_PORT=//p' "${d}manifest.env" | head -1
+    return 0
   done
   return 1
 }

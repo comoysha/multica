@@ -116,8 +116,10 @@ These values are included in the built app, so distribute such builds only to
 trusted devices. Without the local variable, the normal sign-in flow remains.
 The worktree setup links these private files from the main checkout. Branch
 packages use the account represented by these credentials to mint a separate
-credential against the worktree's cloned database. Packaging stops if that
-account or its workspaces are missing from the snapshot. The branch credential
+credential against the worktree's cloned database. The packaging script selects
+the backend registered for this worktree's current frontend port, even when an
+older test environment for the same checkout remains on disk. Packaging stops if
+that account or its workspaces are missing from the snapshot. The branch credential
 and endpoint are included in the package; install it only on trusted devices.
 
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:
