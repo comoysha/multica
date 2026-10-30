@@ -230,6 +230,7 @@ mode_publish() {
   local api_port backend_port
   api_port="$(discover_api_port)" || { err "找不到本 worktree 的测试台端口（先 make up / make worktree-env）。"; err "也可以显式给 MULTICA_TEST_API_PORT=<端口>。"; exit 1; }
   require_testbench "${api_port}" || exit 1
+  # Override the linked main credential with a token minted in this testbench.
   backend_port="$(discover_local_backend_port)" || { err "找不到本 worktree 的后端端口。"; exit 1; }
   require_testbench "${backend_port}" || exit 1
   export EXPO_PUBLIC_LOCAL_AUTH_TOKEN
