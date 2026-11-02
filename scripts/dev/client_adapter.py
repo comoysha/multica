@@ -82,6 +82,9 @@ def shared_module(name, relative):
     path = platform_root() / relative
     if not path.is_file():
         raise ValueError("Reviewed shared platform support is not installed")
+    parent = str(path.parent)
+    if parent not in sys.path:
+        sys.path.insert(0, parent)
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

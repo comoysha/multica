@@ -82,14 +82,19 @@ class RemoteTest(unittest.TestCase):
         token.assert_not_called()
         self.assertFalse(self.input.exists())
 
-    def test_remote_native_compilation_is_serial_and_generic(self):
+    def test_remote_native_compilation_stays_generic_and_honors_recipe_parallelism(self):
         config = json.loads((PROJECT / "dev-platform.json").read_text())
         for name, recipe in config["remote_build"]["recipes"].items():
             for step in recipe.get("steps", []):
                 argv = step["argv"]
                 if "xcodebuild" in argv and any(action in argv for action in ("build", "archive", "build-for-testing")):
-                    self.assertEqual(argv[argv.index("-jobs") + 1], "1", name)
-                    self.assertIn("generic/platform=iOS", argv)
+                    self.assertIn("generic/platform=iOS", argv, name)
+                    if name.startswith("production"):
+                        self.assertEqual(argv[argv.index("-jobs") + 1], "1", name)
+                        self.assertIn("-quiet", argv, name)
+                    else:
+                        self.assertNotIn("-jobs", argv, name)
+                        self.assertNotIn("-quiet", argv, name)
 
     def fake_fetch(self, argv, **kwargs):
         if argv[:2] == ["git", "rev-parse"]:
