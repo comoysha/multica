@@ -342,8 +342,6 @@
               "ios-device",
               "--",
               "xcodebuild",
-              "-jobs",
-              "1",
               "build",
               "-workspace",
               "apps/mobile/ios/MulticaStaging.xcworkspace",
@@ -356,7 +354,6 @@
               "-allowProvisioningUpdates",
               "DEVELOPMENT_TEAM=8ALC9Q43AC",
               "CODE_SIGN_STYLE=Automatic",
-              "-quiet",
               "-configuration",
               "Debug",
               "-derivedDataPath",
@@ -485,8 +482,6 @@
               "ios-branch-ipa",
               "--",
               "xcodebuild",
-              "-jobs",
-              "1",
               "archive",
               "-workspace",
               "apps/mobile/ios/MulticaStaging.xcworkspace",
@@ -499,7 +494,6 @@
               "-allowProvisioningUpdates",
               "DEVELOPMENT_TEAM=8ALC9Q43AC",
               "CODE_SIGN_STYLE=Automatic",
-              "-quiet",
               "-configuration",
               "Release",
               "-derivedDataPath",
@@ -530,8 +524,7 @@
               "{output}/export",
               "-exportOptionsPlist",
               "apps/mobile/scripts/ios-remote-export.plist",
-              "-allowProvisioningUpdates",
-              "-quiet"
+              "-allowProvisioningUpdates"
             ],
             "cwd": ".",
             "env": {
