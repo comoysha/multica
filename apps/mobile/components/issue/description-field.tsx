@@ -11,7 +11,7 @@
  * scroll view).
  */
 import { useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { AutosizeTextArea } from "@/components/ui/autosize-textarea";
 import { MIN_BODY_INPUT_HEIGHT_PX } from "@/components/ui/input-tokens";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,7 @@ export function DescriptionField({
 }) {
   const { t } = useT("issues");
   const [focused, setFocused] = useState(false);
+  const [measuredHeight, setMeasuredHeight] = useState(MIN_BODY_INPUT_HEIGHT_PX);
   const resolvedPlaceholder = placeholder ?? t("new.description_placeholder");
   return (
     <View
@@ -46,20 +47,39 @@ export function DescriptionField({
       )}
       style={continuousCorners}
     >
-      <AutosizeTextArea
-        value={description.text}
-        onChangeText={description.handlers.onChangeText}
-        selection={description.selection}
-        onSelectionChange={description.handlers.onSelectionChange}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder={resolvedPlaceholder}
-        className="py-2"
-        minHeight={MIN_BODY_INPUT_HEIGHT_PX}
-        // The enclosing form scrolls when the full description exceeds the screen.
-        maxHeight={Number.POSITIVE_INFINITY}
-        editable={!disabled}
-      />
+      <View>
+        {/* iOS can report the fixed TextInput viewport instead of its text height.
+            A matching, non-interactive Text measures wrapped lines for the form. */}
+        <Text
+          className="text-base text-foreground py-2"
+          style={{ position: "absolute", left: 0, right: 0, opacity: 0, includeFontPadding: false }}
+          pointerEvents="none"
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          onLayout={(event) => {
+            const height = Math.max(MIN_BODY_INPUT_HEIGHT_PX, Math.ceil(event.nativeEvent.layout.height));
+            setMeasuredHeight((current) => current === height ? current : height);
+          }}
+        >
+          {description.text || " "}
+        </Text>
+        <AutosizeTextArea
+          value={description.text}
+          onChangeText={description.handlers.onChangeText}
+          selection={description.selection}
+          onSelectionChange={description.handlers.onSelectionChange}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={resolvedPlaceholder}
+          className="py-2"
+          minHeight={MIN_BODY_INPUT_HEIGHT_PX}
+          // The enclosing form scrolls when the full description exceeds the screen.
+          maxHeight={Number.POSITIVE_INFINITY}
+          style={{ height: measuredHeight }}
+          editable={!disabled}
+        />
+      </View>
       {images ? <IssueFormImages images={images} disabled={disabled} /> : null}
     </View>
   );
