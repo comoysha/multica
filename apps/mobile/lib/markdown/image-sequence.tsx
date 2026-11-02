@@ -23,7 +23,7 @@ import {
   collectImageSequence,
   type ImageSequenceBlock,
 } from "@multica/core/attachments/image-sequence";
-import { resolveAttachmentUrl } from "@/lib/attachment-url";
+import { resolveImageUri } from "./resolve-image-uri";
 
 const ImageSequenceContext = createContext<readonly string[]>([]);
 
@@ -45,7 +45,7 @@ export function ImageSequenceProvider({
   const uris = useMemo(
     () =>
       collectImageSequence(blocks).map(
-        (item) => resolveAttachmentUrl(item.url) ?? item.url,
+        (item) => resolveImageUri(item.url, item.attachment ? [item.attachment] : undefined),
       ),
     [blocks],
   );

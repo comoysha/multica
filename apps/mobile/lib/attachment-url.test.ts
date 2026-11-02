@@ -47,6 +47,22 @@ describe("resolveAttachmentUrlWithBase", () => {
     ).toBe("http://localhost:8080/file.bin");
   });
 
+  it("rebases a test backend's loopback uploads URL for the phone", () => {
+    expect(resolveAttachmentUrlWithBase(
+      "http://localhost:18939/uploads/workspaces/test/image.png",
+      "https://test.example:52101",
+    )).toBe("https://test.example:52101/uploads/workspaces/test/image.png");
+    expect(resolveAttachmentUrlWithBase(
+      "http://127.0.0.1:18939/uploads/image.jpeg?size=large",
+      "https://test.example:52101",
+    )).toBe("https://test.example:52101/uploads/image.jpeg?size=large");
+  });
+
+  it("does not rebase a loopback URL outside the public uploads route", () => {
+    const url = "http://localhost:18939/api/attachments/att-1/download";
+    expect(resolveAttachmentUrlWithBase(url, BASE)).toBe(url);
+  });
+
   it("returns null for nullish or empty input", () => {
     expect(resolveAttachmentUrlWithBase(null, BASE)).toBeNull();
     expect(resolveAttachmentUrlWithBase(undefined, BASE)).toBeNull();

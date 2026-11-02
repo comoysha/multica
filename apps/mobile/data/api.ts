@@ -139,6 +139,7 @@ import {
   WorkspaceListSchema,
 } from "./schemas";
 import type { ZodType } from "zod";
+import { Directory, File, Paths, UploadType } from "expo-file-system";
 import { getCurrentSlug } from "./workspace-store";
 import { parseWithFallback } from "@/lib/parse-response";
 import { createRequestId } from "@/lib/request-id";
@@ -158,10 +159,7 @@ export interface LoginResponse {
   user: User;
 }
 
-/** Mobile file payload for `uploadFile`. RN doesn't have a browser `File`
- *  object; the fetch `FormData` polyfill accepts `{ uri, name, type }`
- *  directly and streams from disk. expo-image-picker / expo-document-picker
- *  return assets that map straight onto this shape. */
+/** Local file selected by an Expo picker for multipart upload. */
 export interface FileAsset {
   uri: string;
   name: string;
@@ -180,6 +178,7 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024;
  *  pull-to-refresh spinner never going away). 30s is generous for any
  *  reasonable Multica payload size on cellular. */
 const FETCH_TIMEOUT_MS = 30_000;
+const UPLOAD_STALL_TIMEOUT_MS = 60_000;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -1326,24 +1325,7 @@ class ApiClient {
 
   // --- File Upload ---
 
-  /**
-   * Multipart-stream a file to `/api/upload-file`. Mirrors the web
-   * implementation in `packages/core/api/client.ts:uploadFile` but with the
-   * RN-shaped `FileAsset` instead of a browser `File`. The fetch FormData
-   * polyfill recognises `{ uri, name, type }` and reads the file off disk.
-   *
-   * `opts.issueId` / `opts.commentId` link the attachment record. Pass
-   * `issueId` when uploading from a comment composer / reply input; leave
-   * both empty when uploading from a not-yet-created issue (the attachment
-   * is hooked to the issue once it's created — same flow as web).
-   *
-   * Does NOT use `this.fetch` because:
-   *   - FormData must not have a `Content-Type` header preset (the browser /
-   *     RN fetch needs to set the multipart boundary itself).
-   *   - `this.fetch` hard-codes `application/json`.
-   *
-   * So we re-implement the auth + slug + logging shell inline.
-   */
+  /** Streams a picker file as native multipart data, keeping its original name. */
   async uploadFile(
     asset: FileAsset,
     opts?: { issueId?: string; commentId?: string },
@@ -1351,9 +1333,7 @@ class ApiClient {
     const rid = createRequestId();
     const start = Date.now();
     const path = "/api/upload-file";
-
     const headers: Record<string, string> = {
-      // No Content-Type — let fetch set the multipart boundary.
       "X-Client-Platform": "mobile",
       "X-Client-OS": "ios",
       "X-Client-Version": "0.1.0",
@@ -1363,65 +1343,114 @@ class ApiClient {
     const slug = getCurrentSlug();
     if (slug) headers["X-Workspace-Slug"] = slug;
 
-    const formData = new FormData();
-    // RN's FormData accepts `{ uri, name, type }` as the file value.
-    // `as never` quiets TS (the global FormData type expects `Blob | string`).
-    formData.append(
-      "file",
-      { uri: asset.uri, name: asset.name, type: asset.type } as never,
-    );
-    if (opts?.issueId) formData.append("issue_id", opts.issueId);
-    if (opts?.commentId) formData.append("comment_id", opts.commentId);
+    // Expo SDK 57's global fetch cannot serialize RN's { uri, name, type }
+    // FormData part. The native uploader streams the file from disk instead.
+    const staging = new Directory(Paths.cache, `multica-upload-${rid}`);
+    const filename = asset.name.replace(/[\\/"\r\n\x00]/g, "_").replace(/^\.+$/, "") || `upload-${rid}`;
+    const file = new File(staging, filename);
+    let stagingCreated = false;
+    let stagingRemoved = false;
+    let uploadSettled = false;
+    let timedOut = false;
+    let finished = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const removeStaging = () => {
+      if (!stagingCreated || stagingRemoved) return;
+      try {
+        staging.delete();
+        stagingRemoved = true;
+      } catch (err) {
+        console.warn("[api] failed to remove upload staging file", err);
+      }
+    };
 
-    console.log(`[api] → POST ${path}`, { rid, filename: asset.name });
+    try {
+      staging.create({ intermediates: true });
+      stagingCreated = true;
+      await new File(asset.uri).copy(file);
+      console.log(`[api] → POST ${path}`, { rid, filename: asset.name });
 
-    const res = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-    const duration = Date.now() - start;
-
-    if (!res.ok) {
-      if (res.status === 401) this.options.onUnauthorized?.();
+      let rejectTimeout: (error: ApiError) => void = () => {};
+      const timeout = new Promise<never>((_, reject) => {
+        rejectTimeout = reject;
+      });
+      const armStallTimer = () => {
+        if (finished || timedOut) return;
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          rejectTimeout(new ApiError(`Upload stalled for ${UPLOAD_STALL_TIMEOUT_MS}ms`, 0));
+          controller.abort();
+          console.warn(`[api] ← TIMEOUT ${path}`, {
+            rid,
+            duration: `${Date.now() - start}ms`,
+          });
+        }, UPLOAD_STALL_TIMEOUT_MS);
+      };
+      const upload = file.upload(`${API_URL}${path}`, {
+        httpMethod: "POST",
+        uploadType: UploadType.MULTIPART,
+        fieldName: "file",
+        mimeType: asset.type,
+        parameters: {
+          ...(opts?.issueId ? { issue_id: opts.issueId } : {}),
+          ...(opts?.commentId ? { comment_id: opts.commentId } : {}),
+        },
+        headers,
+        sessionType: "foreground",
+        signal: controller.signal,
+        onProgress: armStallTimer,
+      });
+      // Cancellation may precede the native task's final callback. Keep the
+      // staged file until the native upload has actually settled.
+      void upload.then(
+        () => { uploadSettled = true; if (timedOut) removeStaging(); },
+        () => { uploadSettled = true; if (timedOut) removeStaging(); },
+      );
+      armStallTimer();
+      const response = await Promise.race([upload, timeout]);
+      const duration = Date.now() - start;
       let body: unknown;
       try {
-        body = await res.json();
+        body = JSON.parse(response.body);
       } catch {
         body = undefined;
       }
-      const message =
-        (body && typeof body === "object" && "message" in body
-          ? String((body as { message: unknown }).message)
-          : null) ?? `Upload failed: ${res.status}`;
-      console.error(`[api] ← ${res.status} ${path}`, {
+
+      if (response.status < 200 || response.status >= 300) {
+        if (response.status === 401) this.options.onUnauthorized?.();
+        const message =
+          (body && typeof body === "object" && "message" in body
+            ? String((body as { message: unknown }).message)
+            : null) ?? `Upload failed: ${response.status}`;
+        console.error(`[api] ← ${response.status} ${path}`, {
+          rid,
+          duration: `${duration}ms`,
+          error: message,
+        });
+        throw new ApiError(message, response.status, body);
+      }
+
+      // An incomplete attachment must never reach the issue or editor.
+      const parsed = AttachmentSchema.safeParse(body);
+      if (!parsed.success) {
+        console.error(`[api] ← shape mismatch ${path}`, {
+          rid,
+          error: parsed.error.message,
+        });
+        throw new ApiError("Upload response invalid", response.status, body);
+      }
+      console.log(`[api] ← ${response.status} ${path}`, {
         rid,
         duration: `${duration}ms`,
-        error: message,
       });
-      throw new ApiError(message, res.status, body);
+      return parsed.data;
+    } finally {
+      finished = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (!timedOut || uploadSettled) removeStaging();
     }
-
-    console.log(`[api] ← ${res.status} ${path}`, {
-      rid,
-      duration: `${duration}ms`,
-    });
-
-    // Strict validation: parseWithFallback's silent-fallback pattern doesn't
-    // fit here — an attachment without a `url` would be inserted into the
-    // user's text as `![](undefined)`. Throw on shape mismatch so the
-    // caller's Alert path fires instead of letting a broken link land in
-    // the editor.
-    const json: unknown = await res.json();
-    const parsed = AttachmentSchema.safeParse(json);
-    if (!parsed.success) {
-      console.error(`[api] ← shape mismatch ${path}`, {
-        rid,
-        error: parsed.error.message,
-      });
-      throw new ApiError("Upload response invalid", res.status, json);
-    }
-    return parsed.data;
   }
 }
 
