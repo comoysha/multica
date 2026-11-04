@@ -10,6 +10,10 @@ export default [
     languageOptions: {
       globals: { ...globals.node },
     },
+    rules: {
+      // .cjs packaging scripts use require() by definition.
+      "@typescript-eslint/no-require-imports": "off",
+    },
   },
   // Security: every renderer-controlled URL that reaches the OS shell or the
   // native download system must flow through the safe wrappers in
