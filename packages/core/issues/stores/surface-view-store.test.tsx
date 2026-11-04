@@ -10,7 +10,6 @@ import {
   getIssueSurfaceViewStore,
   pruneIssueSurfaceViewStates,
   seedIssueSurfaceViewState,
-  applyIssueSurfaceViewDefinition,
 } from "./surface-view-store";
 
 const flush = async () => {
@@ -225,6 +224,24 @@ describe("issue surface view store registry", () => {
     expect(projectA.getState().viewMode).toBe("swimlane");
   });
 
+  // Later opens of a saved view read this local copy, not the definition, so
+  // a condition missing here silently drops out of the view.
+  it("keeps a saved view's agent running filter across a reload", async () => {
+    setCurrentWorkspace("acme", "ws_a");
+    await flush();
+    seedIssueSurfaceViewState("view:running", { agentRunningFilter: true });
+    const view = getIssueSurfaceViewStore("view:running");
+    expect(view.getState().agentRunningFilter).toBe(true);
+
+    setCurrentWorkspace("beta", "ws_b");
+    await flush();
+    expect(view.getState().agentRunningFilter).toBe(false);
+
+    setCurrentWorkspace("acme", "ws_a");
+    await flush();
+    expect(view.getState().agentRunningFilter).toBe(true);
+  });
+
   it("clears one surface without touching sibling surfaces", async () => {
     setCurrentWorkspace("acme", "ws_a");
     await flush();
@@ -243,7 +260,7 @@ describe("issue surface view store registry", () => {
     );
   });
 
-  it("applies an edited view definition over the first-open seed", async () => {
+  it("keeps local state on re-seed once the surface has been opened", async () => {
     setCurrentWorkspace("acme", "ws_a");
     await flush();
     seedIssueSurfaceViewState("view:v1", {
@@ -253,21 +270,12 @@ describe("issue surface view store registry", () => {
     const store = getIssueSurfaceViewStore("view:v1");
     store.getState().setViewMode("board");
 
-    // Re-seeding is a no-op once local state exists (the reported bug).
+    // Re-seeding is a no-op once local state exists.
     seedIssueSurfaceViewState("view:v1", {
       statusFilters: ["todo", "in_progress", "in_review"],
     });
     expect(store.getState().statusFilters).toEqual(["todo", "in_progress"]);
-
-    applyIssueSurfaceViewDefinition("view:v1", {
-      statusFilters: ["todo", "in_progress", "in_review"],
-    });
-    expect(store.getState().statusFilters).toEqual(["todo", "in_progress", "in_review"]);
-    // Fields the definition does not carry keep the local value.
     expect(store.getState().viewMode).toBe("board");
-    expect(
-      getIssueSurfaceViewStateRegistrySnapshot()["view:v1"]?.state.statusFilters,
-    ).toEqual(["todo", "in_progress", "in_review"]);
   });
 
   it("prunes invalid surfaces and resets live stores for pruned keys", async () => {

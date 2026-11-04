@@ -307,7 +307,7 @@ func TestDefaultWorkflowIsEditableButNotDeletable(t *testing.T) {
 	if updated.Name != "Default" || len(updated.Steps) != 6 {
 		t.Fatalf("updated Default = %+v, want its name kept and in_review removed", updated)
 	}
-	// Default accepts every status, so dropping one moves no issue.
+	// Editing Default maps no issue: one on a status it dropped keeps it.
 	if status, _, _ := issueStatusAndAssignee(t, issueID); status != "in_review" {
 		t.Fatalf("editing Default moved an issue to %q", status)
 	}
@@ -385,6 +385,69 @@ func TestUpdateIssueRejectsStatusOutsideNamedWorkflow(t *testing.T) {
 		t.Fatalf("error %q should list the allowed keys", msg)
 	}
 	updateIssueForTest(t, issueID, map[string]any{"status": "blocked"}).Want(http.StatusOK)
+}
+
+// A stored Default limits statuses on its projects and on issues outside any
+// project; an issue already on another status keeps it. (MUL-8250)
+func TestDefaultLimitsStatusesInAndOutsideProjects(t *testing.T) {
+	seedTestCatalog(t)
+	resetDefaultWorkflow(t)
+	testutil.Call(t, testHandler.ListIssueWorkflows, workflowRequest("GET", "/api/issue-workflows", nil)).Want(http.StatusOK)
+	statusName := "Ship " + workflowTestSuffix()[10:]
+	var wf IssueWorkflowResponse
+	testutil.Call(t, testHandler.CreateIssueWorkflow, workflowRequest("POST", "/api/issue-workflows", map[string]any{
+		"name":  "Ship " + workflowTestSuffix(),
+		"steps": []map[string]any{{"new_status": map[string]any{"name": statusName, "category": "started"}}},
+	})).Want(http.StatusCreated).JSON(&wf)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_workflow WHERE id = $1`, wf.ID)
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE workspace_id = $1 AND name = $2`, testWorkspaceID, statusName)
+	})
+	shipKey := ""
+	for _, s := range wf.Steps {
+		if lookupStatusName(t, s.StatusKey) == statusName {
+			shipKey = s.StatusKey
+		}
+	}
+	if shipKey == "" {
+		t.Fatalf("workflow steps %+v lack the new status", wf.Steps)
+	}
+
+	outside := dbfx.Issue(t, "outside a project", testutil.Cols{"status": "todo"})
+	body := updateIssueForTest(t, outside, map[string]any{"status": shipKey}).Want(http.StatusBadRequest).Map()
+	if body["code"] != "status_not_in_workflow" {
+		t.Fatalf("code = %v, want status_not_in_workflow", body["code"])
+	}
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "issues outside a project") {
+		t.Fatalf("error %q should say the issue is outside a project", msg)
+	}
+	updateIssueForTest(t, outside, map[string]any{"status": "in_progress"}).Want(http.StatusOK)
+
+	projectID := createWorkflowTestProject(t, "Default limit project")
+	onDefault := dbfx.Issue(t, "on a Default project", testutil.Cols{"project_id": projectID, "status": "todo"})
+	updateIssueForTest(t, onDefault, map[string]any{"status": shipKey}).Want(http.StatusBadRequest)
+
+	kept := dbfx.Issue(t, "already shipped", testutil.Cols{"status": shipKey})
+	updateIssueForTest(t, kept, map[string]any{"title": "still shipped"}).Want(http.StatusOK)
+	updateIssueForTest(t, kept, map[string]any{"status": shipKey}).Want(http.StatusOK)
+	if status, _, _ := issueStatusAndAssignee(t, kept); status != shipKey {
+		t.Fatalf("an issue already on %q moved to %q", shipKey, status)
+	}
+
+	testutil.Call(t, testHandler.CreateIssue, newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "created outside Default", "status": shipKey,
+	})).Want(http.StatusBadRequest)
+
+	// A status created in Settings belongs to no workflow, so it joins Default.
+	var settingsStatus IssueStatusResponse
+	testutil.Call(t, testHandler.CreateIssueStatus, newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
+		"name": "Parked " + workflowTestSuffix()[10:], "category": "unstarted", "color": "#123456",
+	})).Want(http.StatusCreated).JSON(&settingsStatus)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(settingsStatus.ID))
+	})
+	updateIssueForTest(t, outside, map[string]any{"status": settingsStatus.Key}).Want(http.StatusOK)
+	updateIssueForTest(t, onDefault, map[string]any{"status": settingsStatus.Key}).Want(http.StatusOK)
 }
 
 func TestStatusChangeHandsOffOnDefaultProject(t *testing.T) {
@@ -834,7 +897,7 @@ func TestClaimCarriesProjectWorkflow(t *testing.T) {
 	quietProject := createWorkflowTestProject(t, "Workflow quiet project")
 	quiet := dbfx.Issue(t, "no handoffs", testutil.Cols{"project_id": quietProject, "status": "todo"})
 	quietIssue, _ := testHandler.Queries.GetIssue(context.Background(), util.MustParseUUID(quiet))
-	if testHandler.claimProjectWorkflow(context.Background(), quietIssue, nil) != nil {
+	if testHandler.claimProjectWorkflow(context.Background(), quietIssue, nil, false) != nil {
 		t.Fatal("a Default project without handoffs must not carry a workflow")
 	}
 
@@ -865,7 +928,7 @@ func TestClaimCarriesProjectWorkflow(t *testing.T) {
 
 	plain := dbfx.Issue(t, "no workflow", testutil.Cols{"status": "todo"})
 	plainIssue, _ := testHandler.Queries.GetIssue(context.Background(), util.MustParseUUID(plain))
-	if testHandler.claimProjectWorkflow(context.Background(), plainIssue, nil) != nil {
+	if testHandler.claimProjectWorkflow(context.Background(), plainIssue, nil, false) != nil {
 		t.Fatal("an issue outside a project must not carry a workflow")
 	}
 }
@@ -878,7 +941,7 @@ func claimBriefForTest(t *testing.T, issueID string, task db.AgentTaskQueue) str
 	if err != nil {
 		t.Fatalf("load issue: %v", err)
 	}
-	got := testHandler.claimProjectWorkflow(context.Background(), issue, &task)
+	got := testHandler.claimProjectWorkflow(context.Background(), issue, &task, false)
 	if got == nil {
 		t.Fatalf("claim of %s carries no workflow", issueID)
 	}
@@ -1237,5 +1300,69 @@ func TestHandoffDoesNotAlsoWakeTheHandler(t *testing.T) {
 	}
 	if n := pending(watcherWakeup); n == 0 {
 		t.Fatal("another agent's wakeup missed the assignment")
+	}
+}
+
+func TestDescriptionUpdatePreservesWorkflowHandoff(t *testing.T) {
+	seedTestCatalog(t)
+	targetAgent := seededReadyAgentID(t)
+	sourceAgent := dbfx.Agent(t, "Description handoff Agent A", handlerTestRuntimeID(t))
+	projectID := deliveryProject(t, "Description handoff project", targetAgent)
+	setColumnHandoff(t, projectID, "in_review", handToAgent(targetAgent, "Process the saved description.")).Want(http.StatusOK)
+	issueID := dbfx.Issue(t, "Saved result handoff", testutil.Cols{
+		"project_id": projectID, "status": "in_progress", "assignee_type": "agent", "assignee_id": sourceAgent,
+	})
+
+	updateIssueForTest(t, issueID, map[string]any{"status": "in_review", "description": "Updated description."}).Want(http.StatusOK)
+	_, kind, id := issueStatusAndAssignee(t, issueID)
+	if kind != "agent" || id != targetAgent {
+		t.Fatalf("saved assignee = %s/%s, want workflow-selected agent %s", kind, id, targetAgent)
+	}
+	if n := taskCountFor(t, issueID, targetAgent); n != 1 {
+		t.Fatalf("target agent runs = %d, want one without any follow-up comment", n)
+	}
+	if n := taskCountFor(t, issueID, sourceAgent); n != 0 {
+		t.Fatalf("source agent runs = %d, want none", n)
+	}
+	issue, err := testHandler.Queries.GetIssue(context.Background(), util.MustParseUUID(issueID))
+	if err != nil || issue.Description.String != "Updated description." {
+		t.Fatalf("saved result = %q, err = %v", issue.Description.String, err)
+	}
+	updateIssueForTest(t, issueID, map[string]any{"status": "in_review", "description": "Updated description."}).Want(http.StatusOK)
+	if n := taskCountFor(t, issueID, targetAgent); n != 1 {
+		t.Fatalf("unchanged-status retry created %d target agent runs, want one", n)
+	}
+}
+
+func TestBatchDescriptionUpdatePreservesWorkflowHandoff(t *testing.T) {
+	seedTestCatalog(t)
+	targetAgent := seededReadyAgentID(t)
+	sourceAgent := dbfx.Agent(t, "Batch description handoff Agent A", handlerTestRuntimeID(t))
+	projectID := deliveryProject(t, "Batch description handoff project", targetAgent)
+	setColumnHandoff(t, projectID, "in_review", handToAgent(targetAgent, "Process the saved description.")).Want(http.StatusOK)
+	issueID := dbfx.Issue(t, "Batch saved result handoff", testutil.Cols{
+		"project_id": projectID, "status": "in_progress", "assignee_type": "agent", "assignee_id": sourceAgent,
+	})
+	testutil.Call(t, testHandler.BatchUpdateIssues, workflowRequest(http.MethodPost, "/api/issues/batch", map[string]any{
+		"issue_ids": []string{issueID}, "updates": map[string]any{"status": "in_review", "description": "Batch updated description."},
+	})).Want(http.StatusOK)
+	_, kind, id := issueStatusAndAssignee(t, issueID)
+	if kind != "agent" || id != targetAgent || taskCountFor(t, issueID, targetAgent) != 1 || taskCountFor(t, issueID, sourceAgent) != 0 {
+		t.Fatalf("batch saved assignee = %s/%s; want target agent %s and one target-agent-only run", kind, id, targetAgent)
+	}
+}
+
+func TestDescriptionHandoffExplicitMemberOverride(t *testing.T) {
+	seedTestCatalog(t)
+	targetAgent := seededReadyAgentID(t)
+	projectID := deliveryProject(t, "Description explicit member project", targetAgent)
+	setColumnHandoff(t, projectID, "in_review", handToAgent(targetAgent, "Process the saved description.")).Want(http.StatusOK)
+	issueID := dbfx.Issue(t, "Explicit member assignment", testutil.Cols{"project_id": projectID, "status": "in_progress"})
+	updateIssueForTest(t, issueID, map[string]any{
+		"status": "in_review", "description": "Updated description for the assigned member.", "assignee_type": "member", "assignee_id": testUserID,
+	}).Want(http.StatusOK)
+	_, kind, id := issueStatusAndAssignee(t, issueID)
+	if kind != "member" || id != testUserID || taskCountFor(t, issueID, targetAgent) != 0 {
+		t.Fatalf("explicit member overridden: assignee=%s/%s", kind, id)
 	}
 }
