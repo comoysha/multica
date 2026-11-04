@@ -1,23 +1,14 @@
 #!/usr/bin/env bash
-# Build and run the iOS app, re-applying app.config.ts to ios/ first.
-#
-# `expo run:ios` only prebuilds when ios/ is missing (ensureNativeProjectAsync
-# in @expo/cli): when the directory already exists it returns early and config
-# plugins are never re-applied. Everything driven by app.config.ts — app icon,
-# bundle identifier, display name, URL scheme, Info.plist permission strings —
-# then stays frozen at whatever the first prebuild produced, while the build
-# still reports success.
-#
-# ios/ is gitignored and fully generated, so prebuilding on every run is safe
-# and idempotent. --no-install is fine because run:ios installs pods itself
-# when Podfile.lock is out of date; --clean is deliberately avoided since
-# expo-build-properties sets buildReactNativeFromSource, making a from-source
-# pod rebuild far too slow for the normal edit/run loop.
-#
-# APP_ENV and the .env file are supplied by the calling package.json script, so
-# prebuild and run resolve the same variant. Arguments are forwarded to
-# run:ios only — prebuild takes the same flags for every variant.
+# Managed device builds dispatch to M2. Local simulator work must be explicit.
 set -euo pipefail
 
-pnpm exec expo prebuild -p ios --no-install
-exec pnpm exec expo run:ios "$@"
+if [[ "${1:-}" == "--target" && "${2:-}" == "simulator" ]]; then
+  echo "No reviewed remote simulator build recipe; use shared ios_debug smoke with an existing compatible app. Local compilation is disabled." >&2
+  exit 2
+fi
+if [[ "${1:-}" == "--build-device" ]]; then
+  shift
+fi
+[[ $# -eq 0 ]] || { echo "Use the managed build and ios_debug smoke entry; local device compilation is disabled" >&2; exit 2; }
+[[ "${APP_ENV:-staging}" != "production" ]] || { echo "Production requires its own reviewed remote recipe; no local compilation fallback" >&2; exit 2; }
+exec python3 "$(dirname "$0")/../../../scripts/dev/ios_device_build.py"

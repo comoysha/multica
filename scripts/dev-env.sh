@@ -25,7 +25,7 @@
 #     daemons leak, and nothing on the machine can even list them.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 DEV_HOME="${MULTICA_DEV_HOME:-$HOME/.multica/dev}"
 ENVS_DIR="$DEV_HOME/envs"

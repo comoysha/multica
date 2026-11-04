@@ -41,14 +41,7 @@ import { useWorkspaceStore } from "@/data/workspace-store";
 import { getToken } from "@/data/secure-storage";
 import { api } from "@/data/api";
 import { WSClient } from "./ws-client";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
-
-if (!API_URL) {
-  // ApiClient already throws on this; keeping a defensive check here
-  // avoids a confusing "URL constructor failed" deep in WSClient.
-  throw new Error("EXPO_PUBLIC_API_URL is not set");
-}
+import { API_URL } from "@/lib/client-runtime";
 
 // http(s)://host → ws(s)://host/ws
 const WS_URL = `${API_URL.replace(/^http/, "ws")}/ws`;

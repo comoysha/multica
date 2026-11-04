@@ -83,7 +83,7 @@ describe("mac-update-floor beforePack hook", () => {
     const config = yaml.load(
       readFileSync(resolve(desktopRoot, "electron-builder.yml"), "utf8"),
     );
-    expect(config.beforePack).toBe("./scripts/mac-update-floor.cjs");
+    expect(config.beforePack).toBe("./scripts/client-runtime.cjs");
     expect(config.mac.minimumSystemVersion).toBe("13.0.0");
   });
 });

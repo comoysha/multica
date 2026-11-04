@@ -1,4 +1,8 @@
 import type { ExpoConfig, ConfigContext } from "expo/config";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 /**
  * Dynamic Expo config — replaces app.json so we can read APP_ENV at runtime
@@ -13,6 +17,22 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const env = process.env.APP_ENV ?? "development";
   const isProd = env === "production";
   const isStaging = env === "staging";
+  const clientRuntime = {
+    apiUrl: process.env.EXPO_PUBLIC_API_URL ?? "",
+    buildCommit: execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: __dirname,
+      encoding: "utf8",
+    }).trim(),
+  };
+  const nativeInputs = [
+    "apps/mobile/app.config.ts", "apps/mobile/package.json", "package.json", "pnpm-lock.yaml",
+    "apps/mobile/assets/icon.png", "apps/mobile/patches/expo-modules-core@57.0.21.patch",
+  ];
+  const nativeHashes = Object.fromEntries(nativeInputs.sort().map((path) => [
+    path,
+    createHash("sha256").update(readFileSync(resolve(__dirname, "../..", path))).digest("hex"),
+  ]));
+  const nativeInputsSHA256 = createHash("sha256").update(JSON.stringify(nativeHashes)).digest("hex");
 
   return {
     ...config,
@@ -33,6 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     // icon size from this single PNG.
     icon: "./assets/icon.png",
     ios: {
+      infoPlist: { DPNativeInputsSHA256: nativeInputsSHA256, DPBuildCommit: clientRuntime.buildCommit },
       // Expo keeps the top-level portrait policy for iPhone while adding all
       // iPad orientations required for multitasking when tablet support is on.
       supportsTablet: true,
@@ -97,6 +118,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
       ],
     ],
-    extra: { APP_ENV: env },
+    extra: { APP_ENV: env, clientRuntime },
   };
 };

@@ -25,7 +25,7 @@ TEST_BUNDLE_ID="cn.comosha.multica.desktop.staging"
 TEST_DISPLAY_NAME="Multica·分支"
 # 改到这些路径才算「涉及桌面端或其接口」。桌面端与 views/ui/core 共享组件和 schema、
 # 直连 Go 后端；按路径判断是轻量近似，可用 MULTICA_MAC_TEST_BUILD=1 强制发。
-MAC_PATH_PATTERN='^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\.sh|testbench_auth\.py|dp_env\.sh)$|scripts/dev-env\.sh$)'
+MAC_PATH_PATTERN='^(apps/desktop/|server/|packages/core/|packages/views/|packages/ui/|scripts/dev/(publish_mac_test_build\.sh|client_adapter\.py|testbench_auth\.py|dp_env\.sh)$|scripts/dev-env\.sh$)'
 
 # 安装页地址、某个包在不在，一律问 hub.py 的只读命令（base-url / has），不读它旁边的文件。
 HUB="${MULTICA_MAC_HUB:-${HOME}/dev-platform/services/install-hub/hub.py}"
@@ -129,55 +129,13 @@ mode_remove() {
 
 # ---------------------------------------------------------------- 发包
 
-# 本 worktree 测试台的 API 端口，与 iOS 脚本同一套发现逻辑：
-# 底座登记的 DP_PORT 优先；否则按 DIR 匹配 ~/.multica/dev/envs/*/manifest.env 里的 BACKEND_PORT。
-discover_api_port() {
-  if [[ -n "${MULTICA_TEST_API_PORT:-}" ]]; then
-    printf '%s\n' "${MULTICA_TEST_API_PORT}"
-    return 0
-  fi
-  if [[ -n "${DP_PORT:-}" ]]; then
-    printf '%s\n' "${DP_PORT}"
-    return 0
-  fi
-  local envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir
-  for d in "${envs_dir}"/*/; do
-    [[ -f "${d}manifest.env" ]] || continue
-    dir="$(sed -n 's/^DIR=//p' "${d}manifest.env" | head -1)"
-    [[ -n "${dir}" ]] || continue
-    if [[ "$(cd "${dir}" 2>/dev/null && pwd -P)" == "${WT_ROOT}" ]]; then
-      sed -n 's/^BACKEND_PORT=//p' "${d}manifest.env" | head -1
-      return 0
-    fi
-  done
-  return 1
-}
-
-# 桌面 App 与测试台运行在同一台 Mac 上，直连后端可避开本机代理的
-# Tailscale DNS 劫持。安装页仍使用上面的公开端口供浏览器下载和自检。
-discover_local_backend_port() {
-  local envs_dir="${MULTICA_DEV_HOME:-${HOME}/.multica/dev}/envs" d dir
-  for d in "${envs_dir}"/*/; do
-    [[ -f "${d}manifest.env" ]] || continue
-    dir="$(sed -n 's/^DIR=//p' "${d}manifest.env" | head -1)"
-    [[ -n "${dir}" ]] || continue
-    if [[ "$(cd "${dir}" 2>/dev/null && pwd -P)" == "${WT_ROOT}" ]]; then
-      sed -n 's/^BACKEND_PORT=//p' "${d}manifest.env" | head -1
-      return 0
-    fi
-  done
-  return 1
-}
-
-# 测试台必须已经起好、能正常响应。本脚本不代为启动：
-# 人工核查用的测试台由合并闸的 gate.py prepare 按 testbench.up（make up）起好。
-require_testbench() {
-  local port="$1"
-  if ! curl --noproxy '*' --fail --silent --max-time 5 "http://127.0.0.1:${port}/health" >/dev/null; then
-    err "本 worktree 的测试台没有在正常响应（http://127.0.0.1:${port}/health 不通）。"
-    err "先起测试台：make up，或让 AI 重新「准备验收」。"
-    return 1
-  fi
+# Resolve and verify one contract before minting any testbench credential.
+prepare_client_contract() {
+  CLIENT_TOOL="${MULTICA_CLIENT_TOOL:-${HOME}/dev-platform/tools/client/contract.py}"
+  CLIENT_CONTRACT_FILE="${WT_ROOT}/data/client-contract-mac.json"
+  mkdir -p "${WT_ROOT}/data"
+  python3 "${WT_ROOT}/scripts/dev/client_adapter.py" verify >"${CLIENT_CONTRACT_FILE}.tmp" || return 1
+  mv "${CLIENT_CONTRACT_FILE}.tmp" "${CLIENT_CONTRACT_FILE}"
 }
 
 ensure_deps() {
@@ -227,17 +185,20 @@ mode_publish() {
   fi
 
   local api_port backend_port
-  api_port="$(discover_api_port)" || { err "找不到本 worktree 的测试台端口（先 make up / make worktree-env）。"; err "也可以显式给 MULTICA_TEST_API_PORT=<端口>。"; exit 1; }
-  require_testbench "${api_port}" || exit 1
-  backend_port="$(discover_local_backend_port)" || { err "找不到本 worktree 的后端端口。"; exit 1; }
-  require_testbench "${backend_port}" || exit 1
+  prepare_client_contract || exit 1
+  api_port="$(jq -r '.worktree_port' "${CLIENT_CONTRACT_FILE}")"
+  backend_port="$(jq -r '.services.backend.port' "${CLIENT_CONTRACT_FILE}")"
+  if [[ -n "${MULTICA_TEST_API_PORT:-}" && "${MULTICA_TEST_API_PORT}" != "${api_port}" ]]; then
+    err "MULTICA_TEST_API_PORT differs from the verified worktree; refusing to publish."
+    exit 1
+  fi
   export VITE_LOCAL_AUTH_TOKEN
   VITE_LOCAL_AUTH_TOKEN="$(python3 "${WT_ROOT}/scripts/dev/testbench_auth.py" "${backend_port}" "${DESKTOP_DIR}/.env.local" VITE_LOCAL_AUTH_TOKEN "${WT_ROOT}/data/mac-test-auth.json")" || exit 1
   AUTH_FINGERPRINT="$(printf '%s' "${VITE_LOCAL_AUTH_TOKEN}" | shasum -a 256 | cut -d ' ' -f 1)"
   ensure_deps
 
   INSTALL_URL="$(hub_install_url)" || exit 1
-  SERVER_URL="$("${HUB}" url "${api_port}")"
+  SERVER_URL="$(jq -r '.public_url' "${CLIENT_CONTRACT_FILE}")"
   LOCAL_API_URL="http://127.0.0.1:${backend_port}"
   LOCAL_APP_URL="http://127.0.0.1:${api_port}"
   export VITE_BRANCH_API_URL="${LOCAL_API_URL}" VITE_BRANCH_APP_URL="${LOCAL_APP_URL}"
@@ -271,20 +232,9 @@ mode_publish() {
 
   write_variant_config
 
-  # 包发出去了不等于连得上：从对外地址真实请求一次测试台。
-  # 本机若开着代理的「假地址」DNS，tailnet 域名在本机会被解析成 198.18.x.x，直接请求必然失败；
-  # 这时改用本机真实的 Tailscale 地址再试一次。
-  local reach_args=() host ts_ip
-  host="$(printf '%s' "${SERVER_URL}" | sed -E 's#^https?://([^:/]+).*#\1#')"
-  if [[ "${host}" == *.ts.net ]] && ts_ip="$(tailscale ip -4 2>/dev/null | head -1)" && [[ -n "${ts_ip}" ]]; then
-    reach_args=(--resolve "${host}:$(printf '%s' "${SERVER_URL}" | sed -E 's#.*:([0-9]+)$#\1#'):${ts_ip}")
-  fi
-  if ! curl --noproxy '*' --fail --silent --max-time 10 -o /dev/null "${SERVER_URL}/health" \
-     && ! curl --noproxy '*' --fail --silent --max-time 10 -o /dev/null ${reach_args[@]+"${reach_args[@]}"} "${SERVER_URL}/health"; then
-    err "包已发布，但对外地址 ${SERVER_URL} 访问不通，装好的分支包会连不上测试台。"
-    err "检查本机 Tailscale 是否在线、tailscale serve status 里有没有这个端口。"
-    exit 1
-  fi
+  python3 "${CLIENT_TOOL}" verify-artifact --project "${WT_ROOT}" \
+    --platform mac --contract "${CLIENT_CONTRACT_FILE}" \
+    --evidence "${WT_ROOT}/data/client-artifact-mac.json" || exit 1
   print_summary
 }
 

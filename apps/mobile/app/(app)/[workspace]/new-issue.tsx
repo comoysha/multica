@@ -137,6 +137,7 @@ export default function NewIssueModal() {
           keyboardShouldPersistTaps="handled"
         >
           <TextInput
+            testID="new-issue-title"
             value={title}
             onChangeText={setTitle}
             placeholder={t("new.title_placeholder")}

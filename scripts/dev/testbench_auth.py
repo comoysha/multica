@@ -5,19 +5,17 @@ import os
 from pathlib import Path
 import re
 import sys
-import urllib.error
-import urllib.request
+import requests
 
 
 def request(base, path, token, body=None):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(base + path, data=data, headers={
-        "Authorization": "Bearer " + token, "Content-Type": "application/json",
-    })
-    # Local traffic must never be routed through a configured proxy.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(req, timeout=5) as response:
-        return json.load(response)
+    with requests.Session() as session:
+        session.trust_env = False
+        response = session.request("POST" if body is not None else "GET", base + path, json=body,
+            headers={"Authorization": "Bearer " + token}, timeout=5, allow_redirects=False)
+        if response.status_code != 200 and not (body is not None and response.status_code == 201):
+            raise ValueError("Testbench authentication returned an unexpected response")
+        return response.json()
 
 
 def read_token(path, key):
@@ -45,7 +43,7 @@ def main(port, env_file, key, cache_file):
                 request(base, "/api/me", token).get("id") == user["id"] and
                 request(base, "/api/workspaces", token)):
             return token
-    except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError):
+    except (OSError, ValueError, KeyError, TypeError, requests.RequestException):
         pass
     result = request(base, "/api/tokens", source, {"name": "branch-test-build", "expires_in_days": 365})
     token = result.get("token")
@@ -62,7 +60,7 @@ def main(port, env_file, key, cache_file):
 if __name__ == "__main__":
     try:
         print(main(*sys.argv[1:]))
-    except (OSError, ValueError, TypeError, urllib.error.URLError) as exc:
+    except (OSError, ValueError, TypeError, requests.RequestException) as exc:
         print("testbench-auth: 无法为测试台创建免登录凭据；请检查副本是否包含主包账号及其工作区。" , file=sys.stderr)
         print("testbench-auth: " + type(exc).__name__, file=sys.stderr)
         sys.exit(1)
