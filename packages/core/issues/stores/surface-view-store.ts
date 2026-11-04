@@ -224,28 +224,10 @@ export function seedIssueSurfaceViewState(
   store.setState(mergeViewStatePersisted(definition, defaults), true);
 }
 
-/**
- * The current user just saved an edit to a view's definition: replace their
- * local copy with it. Without this the first-open-only seed above keeps the
- * stale local state and the saved change never shows on screen. Other
- * members' local copies are untouched (definition stays a default for them).
- */
-export function applyIssueSurfaceViewDefinition(
-  surfaceKey: string,
-  definition: unknown,
-) {
-  const store = getIssueSurfaceViewStore(surfaceKey);
-  const defaults = viewStoreSlice(store.setState);
-  // Overlay on the current local state so fields the definition does not
-  // carry (collapsed groups, hidden statuses…) keep the user's own values.
-  const current = persistedIssueViewState(store.getState());
-  const next =
-    definition && typeof definition === "object"
-      ? { ...current, ...(definition as Record<string, unknown>) }
-      : current;
-  store.setState(mergeViewStatePersisted(next, defaults), true);
-}
-
+// The first-open seed above is intentionally one-shot: once the user has
+// local state, re-seeding would clobber it. Saving a view writes the
+// surface's own current state as the definition, so the local copy never
+// goes stale and no separate apply path is needed.
 export function clearIssueSurfaceViewState(surfaceKey: string) {
   issueSurfaceViewRegistryStore.getState().clearSurfaceState(surfaceKey);
   const store = surfaceStores.get(surfaceKey);

@@ -1,5 +1,6 @@
 import globals from "globals";
 import reactConfig from "@multica/eslint-config/react";
+import { ICON_LIBRARY_IMPORT_PATTERNS } from "@multica/eslint-config/base";
 
 export default [
   ...reactConfig,
@@ -8,6 +9,10 @@ export default [
     files: ["scripts/**/*.{mjs,js,cjs}"],
     languageOptions: {
       globals: { ...globals.node },
+    },
+    rules: {
+      // .cjs packaging scripts use require() by definition.
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
   // Security: every renderer-controlled URL that reaches the OS shell or the
@@ -63,6 +68,7 @@ export default [
                 "Direct navigation from application code breaks the Coordinator protocol (MUL-4741). Use the navigation adapter from src/platform instead.",
             },
           ],
+          patterns: ICON_LIBRARY_IMPORT_PATTERNS,
         },
       ],
       "no-restricted-syntax": [
