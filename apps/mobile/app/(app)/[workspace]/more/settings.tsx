@@ -108,6 +108,9 @@ export default function SettingsPage() {
       className="flex-1 bg-background"
       contentContainerClassName="px-4 py-4 gap-6"
     >
+      {__DEV__ ? (
+        <Text className="text-sm text-muted-foreground">MU-432 · 01</Text>
+      ) : null}
       <SectionGroup title={t("account.title")}>
         <NavRow
           onPress={goProfile}
