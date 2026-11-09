@@ -97,7 +97,8 @@ def serve():
     cfg = config()
     root = Path(cfg['checkout'])
     env = os.environ.copy()
-    env.update(APP_ENV='staging', EXPO_NO_DOTENV='1', CI='1',
+    env.update(APP_ENV='staging', EXPO_NO_DOTENV='1', CI='1', EXPO_OFFLINE='1',
+               EXPO_NO_TELEMETRY='1',
                REACT_NATIVE_PACKAGER_HOSTNAME=cfg['host'])
     print('mobile source:', git(root, 'rev-parse', 'HEAD'), flush=True)
     os.chdir(root / 'apps/mobile')
