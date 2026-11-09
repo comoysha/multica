@@ -1139,7 +1139,9 @@ cmd_up() {
 
   # No resident cleanup service is required: every future environment start is
   # a safe opportunity to collect expired or directory-less environments.
-  cmd_gc --auto
+  if [ "${MULTICA_SKIP_ENV_GC:-0}" != "1" ]; then
+    cmd_gc --auto
+  fi
 
   step "Prerequisites"
   local missing=() tool needed="node go curl"

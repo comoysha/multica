@@ -173,7 +173,8 @@ cmd_up() {
     sleep 1
   done
   clone_from_golden "${1:-keep}"
-  MULTICA_PRESERVE_WORKTREE_DATABASE=1 make up
+  # Task startup must not collect another task's environment or client data.
+  MULTICA_SKIP_ENV_GC=1 MULTICA_PRESERVE_WORKTREE_DATABASE=1 make up
 }
 
 pg() { docker compose exec -T postgres "$@"; }
