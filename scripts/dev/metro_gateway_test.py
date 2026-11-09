@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import random
 from pathlib import Path
 import shutil
 import signal
@@ -28,11 +29,9 @@ class GatewayTest(unittest.TestCase):
         # Find two unused ports without affecting a running Metro.
         for _ in range(100):
             with socket.socket() as first, socket.socket() as second:
-                first.bind(("127.0.0.1", 0))
-                port = first.getsockname()[1]
-                if port > 64000:
-                    continue
+                port = random.SystemRandom().randrange(20000, 48000)
                 try:
+                    first.bind(("127.0.0.1", port))
                     second.bind(("127.0.0.1", port + 1000))
                 except OSError:
                     continue
