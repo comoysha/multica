@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -60,6 +61,17 @@ def service(action, check=True):
     return run(*args, check=check)
 
 
+def start_service(plist):
+    # launchd can finish unloading after bootout returns.
+    for attempt in range(10):
+        result = run('launchctl', 'bootstrap', f'gui/{os.getuid()}', plist,
+                     capture=True, check=False)
+        if result.returncode == 0:
+            return
+        time.sleep(0.5)
+    raise RuntimeError('Code integration finished, but Metro restart failed. Run the service installation script')
+
+
 def update(args):
     cfg = config()
     root = cfg['checkout']
@@ -90,14 +102,15 @@ def update(args):
             event(root, args.command, before)
         finally:
             if active:
-                run('launchctl', 'bootstrap', f'gui/{os.getuid()}', plist)
+                start_service(plist)
 
 
 def serve():
     cfg = config()
     root = Path(cfg['checkout'])
     env = os.environ.copy()
-    env.update(APP_ENV='staging', EXPO_NO_DOTENV='1', CI='1', EXPO_OFFLINE='1',
+    env.pop('CI', None)
+    env.update(APP_ENV='staging', EXPO_NO_DOTENV='1', EXPO_OFFLINE='1',
                EXPO_NO_TELEMETRY='1',
                REACT_NATIVE_PACKAGER_HOSTNAME=cfg['host'])
     print('mobile source:', git(root, 'rev-parse', 'HEAD'), flush=True)
