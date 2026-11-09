@@ -63,7 +63,7 @@ def service(action, check=True):
 
 def start_service(plist):
     # launchd can finish unloading after bootout returns.
-    for attempt in range(10):
+    for attempt in range(40):
         result = run('launchctl', 'bootstrap', f'gui/{os.getuid()}', plist,
                      capture=True, check=False)
         if result.returncode == 0:

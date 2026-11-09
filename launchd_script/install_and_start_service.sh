@@ -36,7 +36,12 @@ fi
 launchctl bootout "gui/$(id -u)/${SERVICE_LABEL}" >/dev/null 2>&1 || true
 cp "${PLIST_SOURCE}" "${PLIST_DEST}"
 chmod 644 "${PLIST_DEST}"
-launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}"
+python3 - "$PROJECT_ROOT" "$PLIST_DEST" <<'PYBOOT'
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / 'scripts/dev'))
+from mobile_fast import start_service
+start_service(pathlib.Path(sys.argv[2]))
+PYBOOT
 launchctl enable "gui/$(id -u)/${SERVICE_LABEL}" >/dev/null 2>&1 || true
 # RunAtLoad already starts the job; killing it here needlessly delays readiness.
 
