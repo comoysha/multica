@@ -9,7 +9,7 @@ MU-432 已获用户 A 方案授权：独立 `dev/mobile` 分支供手机刷新�
 - 本机私有设置：`~/.config/multica-mobile/config.json`，只保存代码目录、手机可达主机地址、端口和私有环境文件路径。环境内容不进入仓库。
 - 日志：固定代码目录的 `data/logs/com.multica.mobile-metro.{stdout,stderr}.log`；整合历史：`~/.local/state/multica-mobile/history.jsonl`。
 
-首次安装由 agent 执行：在已提交的任务目录运行 `python3 scripts/dev/mobile_fast.py init --env-file <现有私有环境文件绝对路径> --host <手机可达地址>`；在创建的固定目录执行 `pnpm install --frozen-lockfile`，再执行 `./launchd_script/install_and_start_service.sh`。不会修改主工作区私有配置或安装页。
+首次安装由 agent 执行：在已提交的任务目录运行 `python3 scripts/dev/mobile_fast.py init --env-file <现有私有环境文件绝对路径> --host <手机可达地址>`；在创建的固定目录执行 `npx -y pnpm@10.28.2 install --frozen-lockfile`，再执行 `./launchd_script/install_and_start_service.sh`。不会修改主工作区私有配置或安装页。
 
 ## 日常任务
 
