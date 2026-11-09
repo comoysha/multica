@@ -4,7 +4,7 @@
   "base_branch": "main",
   "node": "22",
   "merge": {
-    "checks": "python3 scripts/dev/metro_gateway_test.py && python3 scripts/dev/ios_remote_test.py && python3 scripts/dev/ios_device_test.py && bash apps/mobile/scripts/ios-run.test.sh && python3 scripts/dev/client_adapter_test.py && bash scripts/dev-env.test.sh && pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck && pnpm -C apps/desktop exec vitest run scripts/client-runtime.test.mjs scripts/mac-update-floor.test.mjs && pnpm -C apps/desktop typecheck:node",
+    "checks": "python3 scripts/dev/ios_signing_test.py && python3 scripts/dev/metro_gateway_test.py && python3 scripts/dev/ios_remote_test.py && python3 scripts/dev/ios_device_test.py && bash apps/mobile/scripts/ios-run.test.sh && python3 scripts/dev/client_adapter_test.py && bash scripts/dev-env.test.sh && pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck && pnpm -C apps/desktop exec vitest run scripts/client-runtime.test.mjs scripts/mac-update-floor.test.mjs && pnpm -C apps/desktop typecheck:node",
     "method": "squash",
     "on_confirmed": "~/dev-platform/tools/merge/gate.py confirm --linear"
   },
@@ -308,6 +308,21 @@
           },
           {
             "argv": [
+              "python3",
+              "scripts/dev/ios_signing.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-device"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
               "pnpm",
               "install",
               "--frozen-lockfile",
@@ -363,7 +378,6 @@
               "iphoneos",
               "-destination",
               "generic/platform=iOS",
-              "-allowProvisioningUpdates",
               "DEVELOPMENT_TEAM=CYVBAW2826",
               "CODE_SIGN_STYLE=Automatic",
               "-configuration",
@@ -448,6 +462,21 @@
           },
           {
             "argv": [
+              "python3",
+              "scripts/dev/ios_signing.py",
+              "--source-commit",
+              "{source_commit}",
+              "--recipe",
+              "ios-branch-ipa"
+            ],
+            "cwd": ".",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1"
+            }
+          },
+          {
+            "argv": [
               "pnpm",
               "install",
               "--frozen-lockfile",
@@ -503,7 +532,6 @@
               "iphoneos",
               "-destination",
               "generic/platform=iOS",
-              "-allowProvisioningUpdates",
               "DEVELOPMENT_TEAM=CYVBAW2826",
               "CODE_SIGN_STYLE=Automatic",
               "-configuration",
@@ -535,8 +563,7 @@
               "-exportPath",
               "{output}/export",
               "-exportOptionsPlist",
-              "apps/mobile/scripts/ios-remote-export.plist",
-              "-allowProvisioningUpdates"
+              "apps/mobile/scripts/ios-remote-export.plist"
             ],
             "cwd": ".",
             "env": {
@@ -672,7 +699,6 @@
               "iphoneos",
               "-destination",
               "generic/platform=iOS",
-              "-allowProvisioningUpdates",
               "DEVELOPMENT_TEAM=CYVBAW2826",
               "CODE_SIGNING_ALLOWED=YES",
               "CODE_SIGNING_REQUIRED=YES",
@@ -708,7 +734,6 @@
               "{output}/export",
               "-exportOptionsPlist",
               "apps/mobile/scripts/ios-production-export.plist",
-              "-allowProvisioningUpdates",
               "-quiet"
             ],
             "cwd": ".",
