@@ -118,7 +118,8 @@ def serve():
     binaries = root / 'apps/mobile/node_modules/.bin'
     command = str(binaries / 'dotenv')
     os.execvpe(command, [command, '-e', cfg['env_file'], '--', str(binaries / 'expo'),
-                         'start', '--dev-client', '--host', 'lan', '--port', str(cfg['port'])], env)
+                         'start', '--dev-client', '--host', 'lan', '--max-workers', '2',
+                         '--port', str(cfg['port'])], env)
 
 
 def init(args):
@@ -167,7 +168,7 @@ def main():
         print('Metro:', f'http://{cfg["host"]}:{cfg["port"]}')
         print('Open:', f'exp+multica-mobile://expo-development-client/?url=http%3A%2F%2F{cfg["host"]}%3A{cfg["port"]}')
         service('status', check=False)
-        run('curl', '--fail', '--max-time', '5', f'http://{cfg["host"]}:{cfg["port"]}/status')
+        run('curl', '--noproxy', '*', '--fail', '--max-time', '5', f'http://{cfg["host"]}:{cfg["port"]}/status')
 
 
 if __name__ == '__main__':
