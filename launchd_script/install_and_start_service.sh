@@ -38,7 +38,7 @@ cp "${PLIST_SOURCE}" "${PLIST_DEST}"
 chmod 644 "${PLIST_DEST}"
 launchctl bootstrap "gui/$(id -u)" "${PLIST_DEST}"
 launchctl enable "gui/$(id -u)/${SERVICE_LABEL}" >/dev/null 2>&1 || true
-launchctl kickstart -k "gui/$(id -u)/${SERVICE_LABEL}"
+# RunAtLoad already starts the job; killing it here needlessly delays readiness.
 
 echo "Installed and started ${SERVICE_LABEL} at $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S %Z')"
 launchctl print "gui/$(id -u)/${SERVICE_LABEL}" | sed -n '1,60p'

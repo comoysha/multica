@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -65,6 +66,8 @@ def update(args):
     with locked():
         clean(root)
         before = git(root, 'rev-parse', 'HEAD')
+        if not all(re.fullmatch(r'[0-9a-fA-F]{7,40}', ref) for ref in args.commits):
+            raise RuntimeError('Pass explicit commit SHA values, not HEAD or branch names')
         commits = [git(root, 'rev-parse', '--verify', f'{ref}^{{commit}}') for ref in args.commits]
         for sha in commits:
             if len(git(root, 'rev-list', '--parents', '-n', '1', sha).split()) != 2:
