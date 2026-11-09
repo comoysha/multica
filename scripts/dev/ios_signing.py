@@ -58,12 +58,14 @@ def sync_existing():
     gems = binary.parent.parent
     env = {**os.environ, "PATH": "/opt/homebrew/opt/ruby/bin:" + os.environ.get("PATH", ""),
            "GEM_HOME": str(gems), "GEM_PATH": str(gems), "CI": "1", "MATCH_READONLY": "true",
-           "FASTLANE_SKIP_UPDATE_CHECK": "1", "FASTLANE_OPT_OUT_USAGE": "1"}
+           "FASTLANE_SKIP_UPDATE_CHECK": "1", "FASTLANE_OPT_OUT_USAGE": "1", "GIT_TERMINAL_PROMPT": "0",
+           "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no -o ForwardAgent=no -o ConnectTimeout=8"}
     # Match output can include account information; retain it only on the host.
     log = ios_remote_env.ROOT / ".remote-build/signing-match.log"
     descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "w") as stream:
-        result = subprocess.run([str(binary), "match", "development", "--readonly", "--app_identifier", BUNDLE,
+        result = subprocess.run([str(binary), "match", "development", "--readonly", "--shallow_clone", "true",
+                                 "--clone_branch_directly", "true", "--app_identifier", BUNDLE,
                                  "--team_id", TEAM], cwd=signing, env=env, stdout=stream, stderr=stream, timeout=180)
     if result.returncode:
         raise ValueError("Existing match assets could not be synchronized readonly; inspect host-only signing-match.log. No new Apple assets authorized")
