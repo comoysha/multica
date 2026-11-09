@@ -16,7 +16,7 @@ import client_adapter as adapter
 
 ROOT = adapter.ROOT
 BUNDLE = "cn.comosha.multica"
-TEAM = "8ALC9Q43AC"
+TEAM = "CYVBAW2826"
 DESTINATION = "data/ios-production-input.json"
 
 

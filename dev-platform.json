@@ -271,7 +271,7 @@
       "pool": "default"
     },
     "physical_runner": {
-      "team": "8ALC9Q43AC",
+      "team": "CYVBAW2826",
       "mode": "shared"
     },
     "physical_app": "build/ios-device/DerivedData/Build/Products/Debug-iphoneos/MulticaStaging.app",
@@ -352,7 +352,7 @@
               "-destination",
               "generic/platform=iOS",
               "-allowProvisioningUpdates",
-              "DEVELOPMENT_TEAM=8ALC9Q43AC",
+              "DEVELOPMENT_TEAM=CYVBAW2826",
               "CODE_SIGN_STYLE=Automatic",
               "-configuration",
               "Debug",
@@ -492,7 +492,7 @@
               "-destination",
               "generic/platform=iOS",
               "-allowProvisioningUpdates",
-              "DEVELOPMENT_TEAM=8ALC9Q43AC",
+              "DEVELOPMENT_TEAM=CYVBAW2826",
               "CODE_SIGN_STYLE=Automatic",
               "-configuration",
               "Release",
@@ -661,7 +661,7 @@
               "-destination",
               "generic/platform=iOS",
               "-allowProvisioningUpdates",
-              "DEVELOPMENT_TEAM=8ALC9Q43AC",
+              "DEVELOPMENT_TEAM=CYVBAW2826",
               "CODE_SIGNING_ALLOWED=YES",
               "CODE_SIGNING_REQUIRED=YES",
               "CODE_SIGN_STYLE=Automatic",

@@ -48,11 +48,11 @@ def load_context(expected_commit, expected_recipe):
     if production:
         from ios_production import public_url
         public_url(value["web_url"])
-        if (value["team"] != "8ALC9Q43AC" or value["bundle_id"] != "cn.comosha.multica"
+        if (value["team"] != "CYVBAW2826" or value["bundle_id"] != "cn.comosha.multica"
                 or value["required_signing"] != "adhoc"):
             raise ValueError("Production signing identity cannot be replaced or downgraded")
     env = {**os.environ, "TZ": "Asia/Shanghai", "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8",
-        "CI": "1", "APP_ENV": "production" if production else "staging", "EXPO_NO_DOTENV": "1", "EXPO_APPLE_TEAM_ID": "8ALC9Q43AC",
+        "CI": "1", "APP_ENV": "production" if production else "staging", "EXPO_NO_DOTENV": "1", "EXPO_APPLE_TEAM_ID": "CYVBAW2826",
         "EXPO_BUNDLE_IDENTIFIER_STAGING": "cn.comosha.multica.staging",
         "EXPO_BUNDLE_IDENTIFIER_PROD": "cn.comosha.multica",
         "EXPO_PUBLIC_API_URL": value["api_url"], "EXPO_PUBLIC_WEB_URL": value["web_url"] if production else "",

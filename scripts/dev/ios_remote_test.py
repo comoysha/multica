@@ -278,11 +278,11 @@ class RemoteTest(unittest.TestCase):
     def test_adhoc_requires_distribution_identity_without_development_fallback(self):
         production, _, _ = self.production()
         with mock.patch.object(worker,"load_context"), \
-             mock.patch.object(production.subprocess,"run",return_value=types.SimpleNamespace(returncode=0,stdout='Apple Development: Fixture (8ALC9Q43AC)')):
+             mock.patch.object(production.subprocess,"run",return_value=types.SimpleNamespace(returncode=0,stdout='Apple Development: Fixture (CYVBAW2826)')):
             with self.assertRaisesRegex(ValueError,"cannot fall back"):
                 production.signing_ready(self.commit)
         with mock.patch.object(worker,"load_context"), \
-             mock.patch.object(production.subprocess,"run",return_value=types.SimpleNamespace(returncode=0,stdout='Apple Distribution: Fixture (8ALC9Q43AC)')):
+             mock.patch.object(production.subprocess,"run",return_value=types.SimpleNamespace(returncode=0,stdout='Apple Distribution: Fixture (CYVBAW2826)')):
             self.assertEqual(production.signing_ready(self.commit),{"distribution_identity":"available"})
 
 

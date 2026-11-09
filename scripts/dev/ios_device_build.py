@@ -19,7 +19,7 @@ import testbench_auth
 ROOT = adapter.ROOT
 APP = ROOT / "build/ios-device/DerivedData/Build/Products/Debug-iphoneos/MulticaStaging.app"
 BUNDLE = "cn.comosha.multica.staging"
-TEAM = "8ALC9Q43AC"
+TEAM = "CYVBAW2826"
 
 
 def inspect_app(app, commit):

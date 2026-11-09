@@ -42,7 +42,7 @@ def prepare():
     token = testbench_auth.main(env["PORT"], ROOT / "apps/mobile/.env.local",
         "EXPO_PUBLIC_LOCAL_AUTH_TOKEN", ROOT / "data/client-ios-auth.json")
     context = {**os.environ, "APP_ENV": "staging", "EXPO_NO_DOTENV": "1",
-        "EXPO_BUNDLE_IDENTIFIER_STAGING": "cn.comosha.multica.staging", "EXPO_APPLE_TEAM_ID": "8ALC9Q43AC",
+        "EXPO_BUNDLE_IDENTIFIER_STAGING": "cn.comosha.multica.staging", "EXPO_APPLE_TEAM_ID": "CYVBAW2826",
         "EXPO_PUBLIC_API_URL": api, "EXPO_PUBLIC_WEB_URL": "", "EXPO_PUBLIC_LOCAL_AUTH_TOKEN": token,
         "EXPO_PACKAGER_PROXY_URL": metro, "CI": "1"}
     return port, metro, api, context
