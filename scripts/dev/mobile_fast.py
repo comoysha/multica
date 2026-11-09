@@ -11,6 +11,7 @@ import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 CONFIG = Path.home() / '.config/multica-mobile/config.json'
 STATE = Path.home() / '.local/state/multica-mobile'
@@ -113,6 +114,8 @@ def serve():
     env.update(APP_ENV='staging', EXPO_NO_DOTENV='1', EXPO_OFFLINE='1',
                EXPO_NO_TELEMETRY='1',
                REACT_NATIVE_PACKAGER_HOSTNAME=cfg['host'])
+    if cfg.get('public_url'):
+        env['EXPO_PACKAGER_PROXY_URL'] = cfg['public_url']
     print('mobile source:', git(root, 'rev-parse', 'HEAD'), flush=True)
     os.chdir(root / 'apps/mobile')
     binaries = root / 'apps/mobile/node_modules/.bin'
@@ -140,7 +143,8 @@ def init(args):
         run('git', 'worktree', 'add', '-b', 'dev/mobile', checkout, 'HEAD', cwd=source)
         CONFIG.parent.mkdir(parents=True, exist_ok=True)
         CONFIG.write_text(json.dumps(dict(checkout=str(checkout), env_file=str(env_file),
-                                         host=args.host, port=args.port), indent=2) + '\n')
+                                         host=args.host, port=args.port,
+                                         public_url=args.public_url), indent=2) + '\n')
         CONFIG.chmod(0o600)
         event(checkout, 'init', git(checkout, 'rev-parse', 'HEAD'))
         print('Install dependencies in', checkout, 'then run launchd_script/install_and_start_service.sh there')
@@ -154,6 +158,7 @@ def main():
     p.add_argument('--env-file', required=True)
     p.add_argument('--host', required=True)
     p.add_argument('--port', type=int, default=8081)
+    p.add_argument('--public-url', help='Persistent HTTPS proxy URL advertised to the phone')
     for name in ['deliver', 'rollback']:
         sub.add_parser(name).add_argument('commits', nargs='+')
     for name in ['serve', 'status', 'restart']:
@@ -171,10 +176,11 @@ def main():
         cfg = config()
         print('checkout:', cfg['checkout'])
         print('commit:', git(cfg['checkout'], 'rev-parse', 'HEAD'))
-        print('Metro:', f'http://{cfg["host"]}:{cfg["port"]}')
-        print('Open:', f'exp+multica-mobile://expo-development-client/?url=http%3A%2F%2F{cfg["host"]}%3A{cfg["port"]}')
+        url = cfg.get('public_url') or f'http://{cfg["host"]}:{cfg["port"]}'
+        print('Metro:', url)
+        print('Open:', 'exp+multica-mobile://expo-development-client/?url=' + quote(url, safe=''))
         service('status', check=False)
-        run('curl', '--noproxy', '*', '--fail', '--max-time', '5', f'http://{cfg["host"]}:{cfg["port"]}/status')
+        run('curl', '--noproxy', '*', '--fail', '--max-time', '5', f'http://127.0.0.1:{cfg["port"]}/status')
 
 
 if __name__ == '__main__':
