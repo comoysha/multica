@@ -98,8 +98,10 @@ def serve():
                REACT_NATIVE_PACKAGER_HOSTNAME=cfg['host'])
     print('mobile source:', git(root, 'rev-parse', 'HEAD'), flush=True)
     os.chdir(root / 'apps/mobile')
-    os.execvpe('pnpm', ['pnpm', 'exec', 'dotenv', '-e', cfg['env_file'], '--',
-                      'expo', 'start', '--dev-client', '--host', 'lan', '--port', str(cfg['port'])], env)
+    binaries = root / 'apps/mobile/node_modules/.bin'
+    command = str(binaries / 'dotenv')
+    os.execvpe(command, [command, '-e', cfg['env_file'], '--', str(binaries / 'expo'),
+                         'start', '--dev-client', '--host', 'lan', '--port', str(cfg['port'])], env)
 
 
 def init(args):
