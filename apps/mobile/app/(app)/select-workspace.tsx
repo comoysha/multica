@@ -63,6 +63,7 @@ export default function SelectWorkspace() {
               {data.map((ws) => (
                 <CardPressable
                   key={ws.id}
+                  testID={`workspace-${ws.id}`}
                   onPress={() => onSelect(ws.id, ws.slug)}
                 >
                   <Text className="text-base font-semibold text-foreground">

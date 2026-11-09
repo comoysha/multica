@@ -12,7 +12,7 @@ import { useT } from "@/lib/i18n";
 export default function IssuesTab() {
   const { t } = useT("navigation");
   return (
-    <View className="flex-1 bg-background">
+    <View testID="workspace-issues-page" className="flex-1 bg-background">
       <Header title={t("tabs.my_issues")} right={<HeaderActions />} />
       <WorkspaceIssuesList />
     </View>

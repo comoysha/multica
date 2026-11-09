@@ -138,12 +138,25 @@ The development app lands at
 `DPBuildCommit` and `DPNativeInputsSHA256` come from the actual generated Info.plist.
 The shared agent-device XCTest driver is built independently by dev-platform on M2 and verified for the registered phone and signing team. Business projects reuse its tool manifest; they do not declare their own UI driver recipe.
 
-After an approved artifact is available, use the shared
-`tools/sim/ios_debug.py smoke --issue MU-n --dir <worktree>` entry to claim a registered device, install
-without deleting data and validate the actual page. The updated physical, routing
-and resource APIs are supplied by dev-platform PR 118; set `DEV_PLATFORM_ROOT`
-to its reviewed worktree until merged. Simulator use remains an explicit override
-and requires its matching installed staging development client.
+Use `~/dev-platform/tools/sim/ios_debug.py smoke --issue MU-n` from the task
+worktree. `ios_debug.execution` dispatches the registered M2 recipe, installation
+and agent-device page assertions to USB iPhone 14. M4 retains the backend, copied
+database and Metro. The App and shared driver use Wisdom Circle (CYVBAW2826).
+There is no native XCTest unit-test target; JS tests are not native tests.
+
+The managed Metro gateway reserves the task Metro port plus an internal upstream
+port at Metro + 1000; occupied ports fail without changing other processes. It
+pins one actual Expo iOS manifest for the immutable test run (Expo otherwise
+generates a random ID and timestamp per request), forwards JS and WebSockets,
+and provides `/_task/identity` on the same task port. Source or native input
+changes invalidate the run and require a managed restart. During physical
+acceptance the before probe arms an installation session; the gateway requires
+a subsequent JS download and callback reporting the native launcher's manifest
+ID, actual script URL and runtime configuration. The after probe checks that
+evidence against the current installation receipt and hardware ID. HTTP readiness
+or a fetched manifest alone cannot satisfy this check. These diagnostics run only
+in the staging development client; standalone branch IPA validation remains a
+separate artifact path.
 
 New test databases are cloned from a hashed source snapshot. A non-product
 `dev_platform` schema stores the source ID, snapshot hash, and unique clone ID.

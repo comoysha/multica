@@ -6,6 +6,34 @@
       "action": "launch"
     },
     {
+      "action": "tapIfVisible",
+      "text": "Allow",
+      "role": "button"
+    },
+    {
+      "action": "tapIfVisible",
+      "text": "允许",
+      "role": "button"
+    },
+    {
+      "action": "tapIfVisible",
+      "id": "workspace-808e54ed-e09c-4e4a-9846-b22ebfcad5f8"
+    },
+    {
+      "action": "assertVisible",
+      "id": "workspace-issues-tab",
+      "timeout_seconds": 45
+    },
+    {
+      "action": "tap",
+      "id": "workspace-issues-tab"
+    },
+    {
+      "action": "assertVisible",
+      "id": "workspace-issues-page",
+      "timeout_seconds": 30
+    },
+    {
       "action": "assertVisible",
       "id": "create-issue",
       "timeout_seconds": 45
@@ -18,6 +46,11 @@
       "action": "assertVisible",
       "id": "new-issue-title",
       "timeout_seconds": 15
+    },
+    {
+      "action": "inputText",
+      "id": "new-issue-title",
+      "value": "Branch acceptance draft"
     }
   ]
 }

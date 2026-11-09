@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import urlsplit, unquote
 import uuid
 import zipfile
@@ -298,8 +299,72 @@ def verify_installation(app_path, bundle_id, device, receipt_path):
     return receipt["receipt_id"]
 
 
-def probe_client(app_path, metro_url, device_kind="simulator", device="", device_metro_url="", installation_receipt=""):
+def probe_managed_session(app_path, metro_url, device, installation_receipt, phase):
+    """Observe the origin gateway and a callback from the phone's loaded JS."""
+    address = urlsplit(metro_url)
+    if (address.scheme != "https" or address.hostname in (None, "localhost", "127.0.0.1", "::1")
+            or address.username or address.password or address.query or address.fragment or address.path not in ("", "/")):
+        raise ValueError("Managed runtime requires a phone-reachable HTTPS Metro route")
+    app_path = Path(app_path).resolve()
+    info = plistlib.loads((app_path / "Info.plist").read_bytes())
+    cfg = read_json(ROOT / "dev-platform.json")["ios_debug"]
+    bundle = cfg["bundle_id"]
+    if info.get("CFBundleIdentifier") != bundle:
+        raise ValueError("Installed runtime bundle differs from the configured test app")
+    receipt_id = verify_installation(app_path, bundle, device, installation_receipt)
+    with requests.Session() as session:
+        session.trust_env = False
+        def get(suffix):
+            response = session.get(metro_url.rstrip("/") + suffix, timeout=10, allow_redirects=False)
+            if response.status_code != 200:
+                raise ValueError("Managed Metro evidence endpoint unavailable")
+            return response
+        observed = get("/_task/identity").json()
+        response = session.get(metro_url, headers={"expo-platform": "ios",
+            "Accept": "application/expo+json,application/json"}, timeout=10, allow_redirects=False)
+        if response.status_code != 200 or response.headers.get("expo-protocol-version") != "0":
+            raise ValueError("Managed Metro did not serve an Expo manifest")
+        manifest = response.json()
+        runtime = manifest["extra"]["expoClient"]["extra"]["clientRuntime"]
+        commit = run(["git", "rev-parse", "HEAD"])
+        native = hashlib.sha256(json.dumps({name: sha256(ROOT / name) for name in cfg["native_inputs"]},
+            sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        if (observed.get("sha") != commit or observed.get("device_url") != metro_url.rstrip("/")
+                or observed.get("manifest_sha256") != hashlib.sha256(response.content).hexdigest()
+                or observed.get("native_input_sha256") != native
+                or info.get(cfg["native_input_plist_key"]) != native
+                or info.get("DPBuildCommit") != commit or runtime.get("buildCommit") != commit
+                or manifest["extra"]["expoClient"]["ios"]["bundleIdentifier"] != bundle
+                or urlsplit(manifest["launchAsset"]["url"]).netloc != address.netloc):
+            raise ValueError("Observed Metro manifest, native inputs or installed source differ")
+        result = {"api_url": runtime["apiUrl"], "build_commit": runtime["buildCommit"],
+            "bundle_id": bundle, "metro": observed, "evidence": metro_url.rstrip("/") + "/_task/loaded"}
+        if phase == "before":
+            armed = session.post(metro_url.rstrip("/") + "/_task/session", json={"receipt_id": receipt_id,
+                "device": device}, timeout=10, allow_redirects=False)
+            if armed.status_code != 200 or armed.json().get("armed") is not True:
+                raise ValueError("Could not bind the Metro observer to this installation")
+        else:
+            deadline = time.monotonic() + 20
+            while True:
+                loaded = get("/_task/loaded").json()
+                if (loaded.get("receipt_id") == receipt_id and loaded.get("device") == device
+                        and loaded.get("manifest_sha256") == observed["manifest_sha256"]
+                        and loaded.get("script_url") == manifest["launchAsset"]["url"]):
+                    break
+                if time.monotonic() >= deadline:
+                    raise ValueError("No actual JS callback for this phone installation session")
+                time.sleep(0.5)
+            result.update(loaded_js=True, loaded_js_receipt_id=loaded["receipt_id"], loaded_js_device=loaded["device"])
+        return result
+
+
+def probe_client(app_path, metro_url, device_kind="simulator", device="", device_metro_url="", installation_receipt="", runtime_phase=""):
     """Read the same iOS manifest requested by Expo's development launcher."""
+    if runtime_phase:
+        if device_kind != "physical" or metro_url != device_metro_url or not installation_receipt:
+            raise ValueError("Managed runtime requires the physical installation session")
+        return probe_managed_session(app_path, metro_url, device, installation_receipt, runtime_phase)
     ident, env = identity(), env_values()
     address = urlsplit(metro_url)
     metro_port = int(env["METRO_PORT"])
@@ -516,6 +581,7 @@ def main():
     parser.add_argument("--device", default="")
     parser.add_argument("--device-metro-url", default="")
     parser.add_argument("--installation-receipt", default="")
+    parser.add_argument("--runtime-phase", choices=("before", "after"), default="")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--apply", action="store_true")
     mode.add_argument("--dry-run", action="store_true")
@@ -544,7 +610,7 @@ def main():
         elif args.action == "probe-client":
             if not args.app_path or not args.metro_url:
                 parser.error("probe-client requires --app-path and --metro-url")
-            result = probe_client(args.app_path, args.metro_url, args.device_kind, args.device, args.device_metro_url, args.installation_receipt)
+            result = probe_client(args.app_path, args.metro_url, args.device_kind, args.device, args.device_metro_url, args.installation_receipt, args.runtime_phase)
         elif args.action == "inspect":
             if not args.artifact:
                 parser.error("inspect requires --artifact")

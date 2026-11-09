@@ -93,6 +93,7 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="my-issues"
           options={{
+            tabBarButtonTestID: "workspace-issues-tab",
             title: t("tabs.my_issues"),
             tabBarIcon: ({ color, size, focused }) => (
               <Image

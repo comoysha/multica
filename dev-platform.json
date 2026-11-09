@@ -4,7 +4,7 @@
   "base_branch": "main",
   "node": "22",
   "merge": {
-    "checks": "python3 scripts/dev/ios_remote_test.py && python3 scripts/dev/ios_device_test.py && bash apps/mobile/scripts/ios-run.test.sh && python3 scripts/dev/client_adapter_test.py && bash scripts/dev-env.test.sh && pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck && pnpm -C apps/desktop exec vitest run scripts/client-runtime.test.mjs scripts/mac-update-floor.test.mjs && pnpm -C apps/desktop typecheck:node",
+    "checks": "python3 scripts/dev/metro_gateway_test.py && python3 scripts/dev/ios_remote_test.py && python3 scripts/dev/ios_device_test.py && bash apps/mobile/scripts/ios-run.test.sh && python3 scripts/dev/client_adapter_test.py && bash scripts/dev-env.test.sh && pnpm -C apps/mobile exec vitest run && pnpm -C apps/mobile typecheck && pnpm -C apps/desktop exec vitest run scripts/client-runtime.test.mjs scripts/mac-update-floor.test.mjs && pnpm -C apps/desktop typecheck:node",
     "method": "squash",
     "on_confirmed": "~/dev-platform/tools/merge/gate.py confirm --linear"
   },
@@ -215,15 +215,12 @@
         "--device-metro-url",
         "{device_metro_url}",
         "--installation-receipt",
-        "{installation_receipt}"
+        "{installation_receipt}",
+        "--runtime-phase",
+        "{runtime_phase}"
       ],
       "timeout": 45,
       "api_target": "public"
-    },
-    "database": {
-      "port_offset": 20000,
-      "url_env_file": ".env.worktree",
-      "url_key": "DATABASE_URL"
     },
     "environment_registry": {
       "glob": "~/.multica/dev/envs/*/manifest.env",
@@ -245,7 +242,8 @@
       "contains": "packager-status:running",
       "device_url_env_file": ".env.ios-device",
       "device_url_env": "IOS_DEVICE_METRO_URL",
-      "ready_file": ".env.ios-device"
+      "ready_file": ".env.ios-device",
+      "identity_path": "/_task/identity"
     },
     "services": {
       "backend": {
@@ -275,7 +273,21 @@
       "mode": "shared"
     },
     "physical_app": "build/ios-device/DerivedData/Build/Products/Debug-iphoneos/MulticaStaging.app",
-    "simulator_flow": "apps/mobile/.maestro/client-smoke.yaml"
+    "simulator_flow": "apps/mobile/.maestro/client-smoke.yaml",
+    "execution": {
+      "host": "m2",
+      "backend": "origin",
+      "page_recipe": "ios-device",
+      "page_build_command": [
+        "python3",
+        "scripts/dev/ios_device_build.py",
+        "--recipe",
+        "ios-device",
+        "--json"
+      ],
+      "device": "00008110-000A08840E6A401E"
+    },
+    "source_commit_plist_key": "DPBuildCommit"
   },
   "remote_build": {
     "recipes": {

@@ -20,6 +20,7 @@ import { LightboxProvider, prewarmHighlighter } from "@/lib/markdown";
 import { NAV_THEME } from "@/lib/theme";
 import { useColorScheme } from "@/lib/use-color-scheme";
 import { MobileI18nProvider } from "@/lib/i18n";
+import { observeMetroSession } from "@/lib/metro-session";
 
 // Kick off Shiki highlighter init at module load — fires once per process,
 // finishes before the user navigates to any screen with a code block. If
@@ -81,6 +82,7 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  useEffect(observeMetroSession, []);
   const { colorScheme, isDarkColorScheme } = useColorScheme();
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

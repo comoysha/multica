@@ -96,8 +96,8 @@ def main():
     signal.signal(signal.SIGINT, interrupted)
     try:
         port, metro, api, context = prepare()
-        child = subprocess.Popen(["pnpm", "-C", "apps/mobile", "exec", "expo", "start", "--dev-client",
-                                  "--port", str(port), "--host", "lan"], cwd=ROOT, env=context, start_new_session=True)
+        child = subprocess.Popen(["node", "scripts/dev/metro_gateway.cjs", str(port)],
+                                 cwd=ROOT, env=context, start_new_session=True)
         wait_ready(child, port)
         expose(port, metro)
         adapter.shared_tool().verify(ROOT, include_public=True)

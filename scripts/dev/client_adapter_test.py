@@ -16,6 +16,71 @@ spec.loader.exec_module(adapter)
 
 
 class AdapterTest(unittest.TestCase):
+    def managed_runtime(self):
+        manifest = self.client_manifest()
+        cfg = {"ios_debug": {"bundle_id": "ai.multica.mobile.dev", "native_inputs": ["native.txt"],
+                            "native_input_plist_key": "DPNativeInputsSHA256"}}
+        (self.root / "dev-platform.json").write_text(json.dumps(cfg))
+        (self.root / "native.txt").write_text("fixture")
+        native = hashlib.sha256(json.dumps({"native.txt": adapter.sha256(self.root / "native.txt")},
+            sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        (self.app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "ai.multica.mobile.dev",
+            "DPBuildCommit": "a" * 40, "DPNativeInputsSHA256": native}))
+        manifest["launchAsset"]["url"] = "https://metro.example/index.bundle?platform=ios"
+        content = json.dumps(manifest).encode()
+        identity = {"sha": "a" * 40, "device_url": "https://metro.example",
+                    "native_input_sha256": native, "manifest_sha256": hashlib.sha256(content).hexdigest()}
+        def response(value, raw=b""):
+            item = mock.Mock(status_code=200, content=raw, headers={"expo-protocol-version": "0"})
+            item.json.return_value = value
+            return item
+        session = mock.MagicMock()
+        session.__enter__.return_value = session
+        session.get.side_effect = [response(identity), response(manifest, content), response({})]
+        session.post.return_value = response({"armed": True})
+        return session, identity, manifest, response
+
+    def test_managed_before_binds_installation_without_claiming_loaded_js(self):
+        session, _, _, _ = self.managed_runtime()
+        with mock.patch.object(adapter.requests, "Session", return_value=session), \
+                mock.patch.object(adapter, "verify_installation", return_value="receipt"), \
+                mock.patch.object(adapter, "run", return_value="a" * 40):
+            result = adapter.probe_managed_session(self.app, "https://metro.example", "phone", "receipt.json", "before")
+        self.assertNotIn("loaded_js", result)
+        self.assertEqual(session.post.call_args.kwargs["json"], {"receipt_id": "receipt", "device": "phone"})
+
+    def test_managed_after_rejects_no_callback_and_foreign_installation(self):
+        for loaded in ({}, {"receipt_id": "old", "device": "phone"}):
+            with self.subTest(loaded=loaded):
+                # client_manifest creates the fake App directory once per fixture.
+                if hasattr(self, "app"):
+                    (self.app / "Info.plist").unlink()
+                    self.app.rmdir()
+                session, _, _, response = self.managed_runtime()
+                responses = list(session.get.side_effect)
+                responses[-1] = response(loaded)
+                session.get.side_effect = responses
+                with mock.patch.object(adapter.requests, "Session", return_value=session), \
+                        mock.patch.object(adapter, "verify_installation", return_value="receipt"), \
+                        mock.patch.object(adapter, "run", return_value="a" * 40), \
+                        mock.patch.object(adapter.time, "monotonic", side_effect=[0, 21]):
+                    with self.assertRaisesRegex(ValueError, "No actual JS callback"):
+                        adapter.probe_managed_session(self.app, "https://metro.example", "phone", "receipt.json", "after")
+
+    def test_managed_after_returns_only_observed_session_evidence(self):
+        session, identity, manifest, response = self.managed_runtime()
+        responses = list(session.get.side_effect)
+        responses[-1] = response({"receipt_id": "receipt", "device": "phone",
+            "manifest_sha256": identity["manifest_sha256"], "script_url": manifest["launchAsset"]["url"]})
+        session.get.side_effect = responses
+        with mock.patch.object(adapter.requests, "Session", return_value=session), \
+                mock.patch.object(adapter, "verify_installation", return_value="receipt"), \
+                mock.patch.object(adapter, "run", return_value="a" * 40):
+            result = adapter.probe_managed_session(self.app, "https://metro.example", "phone", "receipt.json", "after")
+        self.assertTrue(result["loaded_js"])
+        self.assertEqual(result["loaded_js_receipt_id"], "receipt")
+        session.post.assert_not_called()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
