@@ -116,10 +116,16 @@ def serve():
     print('mobile source:', git(root, 'rev-parse', 'HEAD'), flush=True)
     os.chdir(root / 'apps/mobile')
     binaries = root / 'apps/mobile/node_modules/.bin'
-    command = str(binaries / 'dotenv')
-    os.execvpe(command, [command, '-e', cfg['env_file'], '--', str(binaries / 'expo'),
-                         'start', '--dev-client', '--host', 'lan', '--max-workers', '2',
-                         '--port', str(cfg['port'])], env)
+    # Capture the dotenv environment in memory, then replace this process with
+    # Expo so launchd owns Metro itself instead of a separate dotenv parent.
+    loaded = subprocess.run([str(binaries / 'dotenv'), '-e', cfg['env_file'], '--',
+                             'node', '-e', 'process.stdout.write(JSON.stringify(process.env))'],
+                            env=env, check=True, text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    env = json.loads(loaded.stdout)
+    command = str(binaries / 'expo')
+    os.execvpe(command, [command, 'start', '--dev-client', '--host', 'lan',
+                         '--max-workers', '2', '--port', str(cfg['port'])], env)
 
 
 def init(args):
