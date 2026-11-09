@@ -7,6 +7,7 @@ MU-432 已获用户 A 方案授权：独立 `dev/mobile` 分支供手机刷新�
 - 固定代码目录：`~/multica-mobile-dev`，分支 `dev/mobile`，不直接在此编辑。
 - 用户级 LaunchAgent：`com.multica.mobile-metro`，登录后自动启动并在退出后重启。电脑必须开机、保持网络连接；睡眠或退出登录时不能提供服务。
 - 本机私有设置：`~/.config/multica-mobile/config.json`，只保存代码目录、手机可达主机地址、端口和私有环境文件路径。环境内容不进入仓库。
+- 若使用 Tailscale Serve，`public_url` 保存专用 HTTPS 入口，Metro 将它写入 manifest 和开发连接地址。代理由 Tailscale 持久管理，不依赖 agent 进程。首次配置前查看 `tailscale serve status`，选择没有被占用的专用端口，不改现有映射、ACL 或全局 DNS；使用 `tailscale serve --bg --https=<专用端口> http://127.0.0.1:8081`，停止此映射用 `tailscale serve --https=<专用端口> off`，不要使用 reset。手机需开启 Tailscale。
 - 日志：固定代码目录的 `data/logs/com.multica.mobile-metro.{stdout,stderr}.log`；整合历史：`~/.local/state/multica-mobile/history.jsonl`。
 
 首次安装由 agent 执行：在已提交的任务目录运行 `python3 scripts/dev/mobile_fast.py init --env-file <现有私有环境文件绝对路径> --host <手机可达地址>`；在创建的固定目录执行 `npx -y pnpm@10.28.2 install --frozen-lockfile`，再执行 `./launchd_script/install_and_start_service.sh`。不会修改主工作区私有配置或安装页。
@@ -35,7 +36,7 @@ python3 scripts/dev/mobile_fast.py rollback <共享目录里要撤回的提交SH
 
 回退创建新的 revert 提交，不重置历史；多条回退按从新到旧顺序给出。回退后同样推送 `dev/mobile` 并让手机刷新。再次交付已回退功能时应提交新修改或撤回 revert 提交。不要强推，不回滚用户私有文件。日志记录整合前后 SHA，可用 `git log dev/mobile` 查版本。
 
-停止并移除自动启动：固定目录执行 `./launchd_script/uninstall_and_stop_service.sh`；重新启用执行安装脚本。只管理本服务，保留源码与日志。
+停止并移除自动启动：固定目录执行 `./launchd_script/uninstall_and_stop_service.sh`；重新启用执行安装脚本。只管理本服务，保留源码与日志。若也使用 Tailscale Serve，按上面的专用端口命令单独停止代理；启用代理也需单独执行对应命令。仅停 Metro 时代理返回服务不可用，不会自动改代理目标。
 
 无法连接时先检查电脑是否在线、手机 VPN/本地网络权限、`status` 和服务日志。地址改变时在私有 config.json 更新 host 后重新安装/启动服务；不随意更改 tailnet ACL。客户端若缺少原生模块、Expo/RN 版本不符、签名过期，或任务改到依赖、插件、原生配置，需要重新构建安装开发客户端。工具保守拦截这些提交，由 AI 单独安排构建及兼容性核验；不要通过强行整合绕过拦截。普通页面和交互改动使用现有客户端。
 
