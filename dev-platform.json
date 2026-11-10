@@ -64,5 +64,142 @@
         ]
       }
     ]
+  },
+  "remote_build": {
+    "recipes": {
+      "ios-development-client": {
+        "version": 1,
+        "parameters": [
+          "team",
+          "bundle_id",
+          "api_url"
+        ],
+        "steps": [
+          {
+            "argv": [
+              "pnpm",
+              "install",
+              "--frozen-lockfile",
+              "--filter",
+              "@multica/mobile..."
+            ],
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1",
+              "APP_ENV": "staging",
+              "EXPO_NO_DOTENV": "1",
+              "EXPO_BUNDLE_IDENTIFIER_STAGING": "{bundle_id}",
+              "EXPO_APPLE_TEAM_ID": "{team}",
+              "EXPO_PUBLIC_API_URL": "{api_url}",
+              "EXPO_PUBLIC_WEB_URL": "{api_url}"
+            }
+          },
+          {
+            "argv": [
+              "pnpm",
+              "exec",
+              "expo",
+              "prebuild",
+              "-p",
+              "ios"
+            ],
+            "cwd": "apps/mobile",
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1",
+              "APP_ENV": "staging",
+              "EXPO_NO_DOTENV": "1",
+              "EXPO_BUNDLE_IDENTIFIER_STAGING": "{bundle_id}",
+              "EXPO_APPLE_TEAM_ID": "{team}",
+              "EXPO_PUBLIC_API_URL": "{api_url}",
+              "EXPO_PUBLIC_WEB_URL": "{api_url}"
+            }
+          },
+          {
+            "argv": [
+              "xcodebuild",
+              "build",
+              "-workspace",
+              "apps/mobile/ios/MulticaStaging.xcworkspace",
+              "-scheme",
+              "MulticaStaging",
+              "-sdk",
+              "iphoneos",
+              "-destination",
+              "generic/platform=iOS",
+              "-configuration",
+              "Debug",
+              "-derivedDataPath",
+              "{output}/device",
+              "-allowProvisioningUpdates",
+              "DEVELOPMENT_TEAM={team}",
+              "CODE_SIGN_STYLE=Automatic",
+              "-jobs",
+              "2",
+              "-quiet"
+            ],
+            "env": {
+              "TZ": "Asia/Shanghai",
+              "CI": "1",
+              "APP_ENV": "staging",
+              "EXPO_NO_DOTENV": "1",
+              "EXPO_BUNDLE_IDENTIFIER_STAGING": "{bundle_id}",
+              "EXPO_APPLE_TEAM_ID": "{team}",
+              "EXPO_PUBLIC_API_URL": "{api_url}",
+              "EXPO_PUBLIC_WEB_URL": "{api_url}"
+            }
+          },
+          {
+            "argv": [
+              "python3",
+              "scripts/dev/mobile_fast.py",
+              "verify-client",
+              "{output}/device/Build/Products/Debug-iphoneos/MulticaStaging.app"
+            ]
+          },
+          {
+            "argv": [
+              "codesign",
+              "--verify",
+              "--deep",
+              "--strict",
+              "{output}/device/Build/Products/Debug-iphoneos/MulticaStaging.app"
+            ]
+          }
+        ],
+        "artifacts": [
+          {
+            "name": "app",
+            "kind": "app",
+            "path": ".remote-build/device/Build/Products/Debug-iphoneos/MulticaStaging.app"
+          }
+        ],
+        "toolchain": [
+          {
+            "name": "xcode",
+            "argv": [
+              "xcodebuild",
+              "-version"
+            ]
+          },
+          {
+            "name": "node",
+            "argv": [
+              "node",
+              "--version"
+            ]
+          },
+          {
+            "name": "pnpm",
+            "argv": [
+              "pnpm",
+              "--version"
+            ]
+          }
+        ],
+        "timeout_seconds": 7200,
+        "disk_required_bytes": 12884901888
+      }
+    }
   }
 }
