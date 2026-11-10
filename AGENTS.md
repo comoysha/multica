@@ -118,15 +118,16 @@ Workspace-scoped queries filter by `workspace_id`; membership gates access and `
 - Default tests must not resolve or execute user-installed agent CLIs; pass test-created fake or missing executable paths. New default agent commands go in `scripts/agent-cli-command-names.txt`.
 - Only run real-agent smoke tests when explicitly authorized. Gate them behind `agentintegration` and check `MULTICA_RUN_REAL_AGENT_SMOKE=1` before executable lookup/account access. Run the specific test: `(cd server && MULTICA_RUN_REAL_AGENT_SMOKE=1 go test -tags=agentintegration ./pkg/agent -run '<test-name>' -count=1 -v)`.
 
-## Shared Dev Platform (~/dev-platform)
+## Personal Mobile Delivery
 
-Development workflow for this repository is provided by the shared local platform `~/dev-platform` (worktree create/teardown, task dispatch, merge gate, notifications, packaging and release). This repo only records its own facts in [`dev-platform.json`](dev-platform.json) at the root.
+The Multica project uses the user-approved personal phone workflow in [apps/mobile/docs/fast-development.md](apps/mobile/docs/fast-development.md). It is outside dev-platform's project registry. This project-specific delivery scope takes precedence over generic workspace instructions for managed projects; keep the architecture, safety, and main-branch merge rules above.
 
-- **Tasks**: local Multica (`MU-n`); see `~/dev-platform/rules/multica-workflow.md`, and `~/dev-platform/rules/workflow.md` for the shared rules.
-- **Worktrees**: one worktree per task (`<repo>-wt-<slug>`, branch `feat/<slug>`); make changes only inside it and treat the main checkout as read-only. New worktrees are initialized by `scripts/dev/dp_env.sh setup`: local config is symlinked from the main checkout and test data is an isolated copy cloned from a read-only snapshot of the live database.
-- **Tests**: while developing, run only related tests (`~/dev-platform/tools/tests/related.py --cmd`); leave the full check suite to pre-acceptance.
-- **Acceptance**: after opening the PR, run `~/dev-platform/tools/merge/gate.py prepare` in the worktree (merges the base branch, runs full checks, starts the testbench), then move the task to `in_review`. Only the user confirms a merge; after merge the platform tears down automatically (stops the testbench, drops the copy database, removes the worktree).
-- **Onboarding completeness**: `~/dev-platform/tools/onboard/onboard.py check`.
+- Start new task checkouts from `dev/mobile`. Work in the isolated checkout provided by Multica, or reuse the task's existing worktree. Keep the main checkout and `~/multica-mobile-dev` read-only while implementing.
+- Do not call `multica_start.py`, `dp_env.sh setup`, or `gate.py prepare` for normal mobile tasks. Do not create a test database or publish a branch package as a routine delivery step.
+- Commit on a task branch and push it. Fetch that branch into `~/multica-mobile-dev` before running `python3 scripts/dev/mobile_fast.py deliver <SHA> [...]` from the task checkout; a separate clone does not share Git objects. Push `dev/mobile` after successful integration.
+- Ordinary page and interaction changes reach the installed Debug client through Reload. Daily delivery does not require a full test suite, AI code review, or a new installation package. Run focused verification when the change warrants it; native/dependency changes still require a separately verified development-client build on the registered M2 host.
+- The project's simple workflow has Todo, Done, and Cancelled. After delivery, return ownership to the user without starting an agent run, report the phone version and verification steps, and leave the task pending. Only the user marks it Done or Cancelled. Do not add review statuses or invoke the legacy merge gate.
+- Updating `dev/mobile` does not authorize merging main. Preserve the existing install page and other projects' dev-platform registrations. The personal phone's backend is the live local Multica database, not an isolated test copy; do not use it for destructive test fixtures.
 
 ## Change and Delivery Rules
 
