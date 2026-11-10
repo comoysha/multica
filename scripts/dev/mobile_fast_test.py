@@ -11,6 +11,27 @@ from unittest.mock import patch
 import mobile_fast as fast
 
 
+class MobileEnvironmentTest(unittest.TestCase):
+    def test_stock_staging_env_is_rejected_instead_of_serving_the_wrong_backend(self):
+        env = dict(EXPO_PUBLIC_API_URL='https://official.example.invalid',
+                   EXPO_PUBLIC_WEB_URL='https://official.example.invalid')
+        with self.assertRaisesRegex(RuntimeError, 'EXPO_PUBLIC_LOCAL_AUTH_TOKEN'):
+            fast.validate_mobile_env(env, 'https://personal.example.invalid:52101')
+
+    def test_personal_auth_is_not_sent_to_a_different_server(self):
+        env = dict(EXPO_PUBLIC_API_URL='https://official.example.invalid',
+                   EXPO_PUBLIC_WEB_URL='https://personal.example.invalid:13100',
+                   EXPO_PUBLIC_LOCAL_AUTH_TOKEN='mul_fixture_not_a_real_credential')
+        with self.assertRaisesRegex(RuntimeError, 'same personal server'):
+            fast.validate_mobile_env(env, 'https://personal.example.invalid:52101')
+
+    def test_distinct_api_and_metro_ports_on_the_personal_server_are_valid(self):
+        env = dict(EXPO_PUBLIC_API_URL='https://personal.example.invalid:13100',
+                   EXPO_PUBLIC_WEB_URL='https://personal.example.invalid:13100',
+                   EXPO_PUBLIC_LOCAL_AUTH_TOKEN='mul_fixture_not_a_real_credential')
+        fast.validate_mobile_env(env, 'https://personal.example.invalid:52101')
+
+
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
