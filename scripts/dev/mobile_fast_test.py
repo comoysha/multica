@@ -2,6 +2,7 @@
 import argparse
 import contextlib
 import json
+import plistlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,6 +10,45 @@ import unittest
 from unittest.mock import patch
 
 import mobile_fast as fast
+
+
+class DevelopmentClientTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.app = Path(self.temp.name) / 'Multica.app'
+        self.app.mkdir()
+
+    def client(self, code, schemes=('multica', 'exp+multica-mobile'), debug_code=None):
+        info = dict(CFBundleExecutable='Multica', CFBundleIdentifier='ai.multica.mobile.staging',
+                    CFBundleVersion='5745',
+                    CFBundleURLTypes=[dict(CFBundleURLSchemes=list(schemes))])
+        (self.app / 'Info.plist').write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
+        (self.app / 'Multica').write_bytes(code)
+        if debug_code is not None:
+            (self.app / 'Multica.debug.dylib').write_bytes(debug_code)
+
+    def test_release_with_builtin_bundle_and_matching_scheme_is_rejected(self):
+        self.client(b'\x00Multica\x00RCTBridge\x00main.jsbundle\x00')
+        (self.app / 'main.jsbundle').write_text('embedded release code')
+        with self.assertRaisesRegex(RuntimeError, 'no EXDevLauncher'):
+            fast.verify_client(self.app)
+
+    def test_launcher_without_development_url_scheme_is_rejected(self):
+        self.client(b'\x00EXDevLauncherController\x00', schemes=('multica',))
+        with self.assertRaisesRegex(RuntimeError, 'missing the Metro URL scheme'):
+            fast.verify_client(self.app)
+
+    def test_development_client_is_identified(self):
+        self.client(b'\x00EXDevLauncherController\x00')
+        result = fast.verify_client(self.app)
+        self.assertTrue(result['development_client'])
+        self.assertEqual(result['scheme'], 'exp+multica-mobile')
+        self.assertEqual(result['bundle_id'], 'ai.multica.mobile.staging')
+
+    def test_debug_dylib_launcher_is_supported(self):
+        self.client(b'\x00__debug_dylib\x00', debug_code=b'\x00EXDevLauncherController\x00')
+        self.assertTrue(fast.verify_client(self.app)['development_client'])
 
 
 class MobileEnvironmentTest(unittest.TestCase):

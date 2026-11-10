@@ -36,6 +36,14 @@ Everything below is for app developers — you can ignore the rest if you only w
 
 ## Scripts
 
+For the persistent personal phone workflow, see [fast development](docs/fast-development.md).
+It requires a Debug app with the Expo development launcher; a Staging display
+name or a successful Safari handoff does not establish Metro support. Before
+installing an extracted build, run `python3 scripts/dev/mobile_fast.py verify-client
+<absolute-path-to-app>` from the repository root. This checks the launcher and
+the `exp+multica-mobile` URL scheme; loading current code still requires a phone
+verification.
+
 | Command | What it does | Backend |
 |---|---|---|
 | `pnpm dev:mobile` | Metro only (reuse existing install) | local (`.env.development.local`) |
