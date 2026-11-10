@@ -116,7 +116,9 @@ class IntegrationTest(unittest.TestCase):
         delivered = fast.git(self.repo, 'rev-parse', 'HEAD')
         fast.update(argparse.Namespace(command='rollback', commits=[delivered]))
         self.assertEqual((self.repo / 'screen.txt').read_text(), 'base')
-        self.assertEqual(len((fast.STATE / 'history.jsonl').read_text().splitlines()), 2)
+        records = (fast.STATE / 'history.jsonl').read_text().splitlines()
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(json.loads(line)['time'].endswith('+08:00') for line in records))
 
     def test_conflicting_batch_restores_previous_head(self):
         first = self.commit('extra.txt', 'new file')

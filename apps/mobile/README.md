@@ -42,7 +42,8 @@ name or a successful Safari handoff does not establish Metro support. Before
 installing an extracted build, run `python3 scripts/dev/mobile_fast.py verify-client
 <absolute-path-to-app>` from the repository root. This checks the launcher and
 the `exp+multica-mobile` URL scheme; loading current code still requires a phone
-verification.
+verification. The personal workflow uses the live local backend and database;
+the Staging display name does not imply an isolated test database.
 
 | Command | What it does | Backend |
 |---|---|---|

@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlsplit
 
 CONFIG = Path.home() / '.config/multica-mobile/config.json'
@@ -51,7 +51,7 @@ def clean(root):
 
 
 def event(root, action, before):
-    record = dict(time=datetime.now(timezone.utc).isoformat(), action=action,
+    record = dict(time=datetime.now(timezone(timedelta(hours=8))).isoformat(), action=action,
                   before=before, after=git(root, 'rev-parse', 'HEAD'))
     with (STATE / 'history.jsonl').open('a') as out:
         out.write(json.dumps(record) + '\n')
