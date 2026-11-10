@@ -11,7 +11,7 @@ import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 CONFIG = Path.home() / '.config/multica-mobile/config.json'
 STATE = Path.home() / '.local/state/multica-mobile'
@@ -73,6 +73,21 @@ def start_service(plist):
     raise RuntimeError('Code integration finished, but Metro restart failed. Run the service installation script')
 
 
+def validate_mobile_env(env, public_url=None):
+    required = ['EXPO_PUBLIC_API_URL', 'EXPO_PUBLIC_WEB_URL', 'EXPO_PUBLIC_LOCAL_AUTH_TOKEN']
+    missing = [key for key in required if not env.get(key, '').strip()]
+    if missing:
+        raise RuntimeError('Private mobile environment is missing: ' + ', '.join(missing))
+    if not env['EXPO_PUBLIC_LOCAL_AUTH_TOKEN'].startswith('mul_'):
+        raise RuntimeError('Private mobile environment has an invalid local-auth token format')
+    for key in required[:2]:
+        url = urlsplit(env[key])
+        if url.scheme not in ['http', 'https'] or not url.hostname or url.hostname in ['localhost', '127.0.0.1', '::1']:
+            raise RuntimeError(key + ' must be a phone-reachable HTTP(S) URL')
+        if public_url and url.hostname != urlsplit(public_url).hostname:
+            raise RuntimeError(key + ' must point to the same personal server as the Metro entry')
+
+
 def update(args):
     cfg = config()
     root = cfg['checkout']
@@ -126,6 +141,7 @@ def serve():
                             env=env, check=True, text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
     env = json.loads(loaded.stdout)
+    validate_mobile_env(env, cfg.get('public_url'))
     command = str(binaries / 'expo')
     os.execvpe(command, [command, 'start', '--dev-client', '--host', 'lan',
                          '--max-workers', '2', '--port', str(cfg['port'])], env)

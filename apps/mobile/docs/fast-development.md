@@ -12,6 +12,8 @@ MU-432 已获用户 A 方案授权：独立 `dev/mobile` 分支供手机刷新�
 
 首次安装由 agent 执行：在已提交的任务目录运行 `python3 scripts/dev/mobile_fast.py init --env-file <现有私有环境文件绝对路径> --host <手机可达地址>`；在创建的固定目录执行 `npx -y pnpm@10.28.2 install --frozen-lockfile`，再执行 `./launchd_script/install_and_start_service.sh`。不会修改主工作区私有配置或安装页。
 
+`--env-file` 必须是一份完整的自用手机私有配置，包含 `EXPO_PUBLIC_API_URL`、`EXPO_PUBLIC_WEB_URL` 和 `EXPO_PUBLIC_LOCAL_AUTH_TOKEN`；不能直接使用仓库自带的 `.env.staging`。该文件指向官方测试环境，而自用免登录凭据在另一份私有文件中；本服务显式关闭 Expo 自动加载环境文件，因此不会自动合并它们。实际专用文件为 `~/.config/multica-mobile/mobile.env`，权限 0600，由现有自用手机凭据及固定后端地址生成；原始文件保持原样。启动时检查配置完整性，并要求 API、Web 与 Metro 入口使用同一台个人服务器的主机名，可使用不同端口。凭据及完整代码包只在本机或用户自己的 tailnet 使用，不提交或附到任务评论。
+
 ## 日常任务
 
 用户在 Multica 项目创建需求。AI 在任务目录实现并提交，推送任务分支，再执行：
@@ -23,6 +25,8 @@ python3 scripts/dev/mobile_fast.py deliver <提交SHA> [后续提交SHA...]
 按从旧到新的顺序传入普通提交；不传合并提交，也不自行合并 main。文件锁串行整合；共享目录有未提交修改时停止。整合时暂停 Metro，成功后恢复服务；冲突或失败自动中止整批操作，回到整合前提交，由 AI 在任务目录解决后重试。成功后 AI 推送 `dev/mobile`，在任务写明手机版本及改动，把任务交给用户 In Review；用户刷新检查后自行标记 Done。日常不强制测试套件、AI 代码审或分发安装包。
 
 手机打开 Multica Staging 开发客户端，使用 `status` 打印的开发链接或在开发启动页输入 Metro 地址。手机与电脑需有相互可达的网络（如同一局域网或 Tailscale）；启用手机本地网络权限。进入 App 后摇手机打开开发菜单并 Reload，或从开发启动页重新打开服务。首次验证须看到专用演示文字并有手机实际连接记录，电脑 HTTP 成功不能替代。
+
+直接点击旧 Staging 图标可能继续打开之前的内置代码或旧开发地址。首次切换应通过当前 Metro 网页的“Open”入口或 `status` 打印的开发链接打开，之后才能用刷新加载新代码。如果显示“无法进入，请检查本地服务或更新客户端”，表示页面已执行、但个人账号初始化失败；应核验实际代码来源、私有 API 地址及凭据的 `/api/me` 响应，不要仅凭 Metro `/status` 成功判断 App 可用，也不要因此直接重装或清空手机数据。
 
 ## 状态、恢复和回退
 
