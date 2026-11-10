@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import json
 import os
+import plistlib
 import re
 from pathlib import Path
 import subprocess
@@ -16,6 +17,7 @@ from urllib.parse import quote, urlsplit
 CONFIG = Path.home() / '.config/multica-mobile/config.json'
 STATE = Path.home() / '.local/state/multica-mobile'
 LABEL = 'com.multica.mobile-metro'
+DEV_CLIENT_SCHEME = 'exp+multica-mobile'
 NATIVE = ['apps/mobile/package.json', 'apps/mobile/app.config.ts', 'apps/mobile/patches',
           'apps/mobile/ios', 'apps/mobile/android', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']
 
@@ -86,6 +88,34 @@ def validate_mobile_env(env, public_url=None):
             raise RuntimeError(key + ' must be a phone-reachable HTTP(S) URL')
         if public_url and url.hostname != urlsplit(public_url).hostname:
             raise RuntimeError(key + ' must point to the same personal server as the Metro entry')
+
+
+def verify_client(app):
+    app = Path(app).expanduser().resolve(strict=True)
+    if app.suffix != '.app' or not app.is_dir():
+        raise RuntimeError('Pass an extracted iOS .app directory')
+    try:
+        with (app / 'Info.plist').open('rb') as handle:
+            info = plistlib.load(handle)
+    except (plistlib.InvalidFileException, ValueError) as error:
+        raise RuntimeError('Client Info.plist is invalid') from error
+    executable = info.get('CFBundleExecutable')
+    if not isinstance(executable, str) or not executable or Path(executable).name != executable:
+        raise RuntimeError('Client Info.plist has no valid CFBundleExecutable')
+    # Xcode Debug builds may move the executable code into a sibling dylib.
+    binaries = [app / executable, app / (executable + '.debug.dylib')]
+    if not binaries[0].is_file():
+        raise RuntimeError('Client executable is missing')
+    if not any(b'EXDevLauncherController' in binary.read_bytes()
+               for binary in binaries if binary.is_file()):
+        raise RuntimeError('Client has no EXDevLauncher; a Staging Release app cannot load Metro. Build a Debug development client')
+    schemes = {scheme for entry in info.get('CFBundleURLTypes', [])
+               for scheme in entry.get('CFBundleURLSchemes', [])}
+    if DEV_CLIENT_SCHEME not in schemes:
+        raise RuntimeError('Client is missing the Metro URL scheme: ' + DEV_CLIENT_SCHEME)
+    return dict(bundle_id=info.get('CFBundleIdentifier'),
+                build=info.get('CFBundleVersion'), scheme=DEV_CLIENT_SCHEME,
+                development_client=True)
 
 
 def update(args):
@@ -179,6 +209,7 @@ def main():
         sub.add_parser(name).add_argument('commits', nargs='+')
     for name in ['serve', 'status', 'restart']:
         sub.add_parser(name)
+    sub.add_parser('verify-client').add_argument('app', help='Extracted iOS .app directory')
     args = parser.parse_args()
     if args.command == 'init':
         init(args)
@@ -188,13 +219,15 @@ def main():
         serve()
     elif args.command == 'restart':
         service('restart')
+    elif args.command == 'verify-client':
+        print(json.dumps(verify_client(args.app)))
     else:
         cfg = config()
         print('checkout:', cfg['checkout'])
         print('commit:', git(cfg['checkout'], 'rev-parse', 'HEAD'))
         url = cfg.get('public_url') or f'http://{cfg["host"]}:{cfg["port"]}'
         print('Metro:', url)
-        print('Open:', 'exp+multica-mobile://expo-development-client/?url=' + quote(url, safe=''))
+        print('Open:', DEV_CLIENT_SCHEME + '://expo-development-client/?url=' + quote(url, safe=''))
         service('status', check=False)
         run('curl', '--noproxy', '*', '--fail', '--max-time', '5', f'http://127.0.0.1:{cfg["port"]}/status')
 
