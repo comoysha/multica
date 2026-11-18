@@ -109,7 +109,7 @@ export default function SettingsPage() {
       contentContainerClassName="px-4 py-4 gap-6"
     >
       {__DEV__ ? (
-        <Text className="text-sm text-muted-foreground">MU-432 · 01</Text>
+        <Text className="text-sm text-muted-foreground">MU-482 · 01</Text>
       ) : null}
       <SectionGroup title={t("account.title")}>
         <NavRow
