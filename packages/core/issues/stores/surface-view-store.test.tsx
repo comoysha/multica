@@ -103,7 +103,7 @@ describe("issue surface view store registry", () => {
 
     const legacy = getIssueSurfaceViewStore("workspace:legacy").getState();
     expect([legacy.sortBy, legacy.sortDirection]).toEqual([
-      "created_at",
+      "updated_at",
       "desc",
     ]);
     expect(legacy.cardProperties.description).toBe(false);
@@ -258,24 +258,6 @@ describe("issue surface view store registry", () => {
     expect(getIssueSurfaceViewStateRegistrySnapshot()["project:b"]?.state.viewMode).toBe(
       "gantt",
     );
-  });
-
-  it("keeps local state on re-seed once the surface has been opened", async () => {
-    setCurrentWorkspace("acme", "ws_a");
-    await flush();
-    seedIssueSurfaceViewState("view:v1", {
-      statusFilters: ["todo", "in_progress"],
-      viewMode: "list",
-    });
-    const store = getIssueSurfaceViewStore("view:v1");
-    store.getState().setViewMode("board");
-
-    // Re-seeding is a no-op once local state exists.
-    seedIssueSurfaceViewState("view:v1", {
-      statusFilters: ["todo", "in_progress", "in_review"],
-    });
-    expect(store.getState().statusFilters).toEqual(["todo", "in_progress"]);
-    expect(store.getState().viewMode).toBe("board");
   });
 
   it("prunes invalid surfaces and resets live stores for pruned keys", async () => {

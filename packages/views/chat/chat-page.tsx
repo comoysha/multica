@@ -8,7 +8,7 @@ import { IconButton } from "@multica/ui/components/common/icon-button";
 import { useIsCompact } from "@multica/ui/hooks/use-mobile";
 import { useRequiredWorkspaceSlug, useWorkspacePaths } from "@multica/core/paths";
 import { getCurrentSlug } from "@multica/core/platform";
-import { useChatStore, DRAFT_NEW_SESSION } from "@multica/core/chat";
+import { useChatStore } from "@multica/core/chat";
 import { chatQuickActionsPendingOptions } from "@multica/core/chat/queries";
 import { useRegenerateChatQuickActions } from "@multica/core/chat/mutations";
 import { useQuickActionsPendingTimeout } from "@multica/core/chat/use-quick-actions-pending-timeout";
@@ -30,25 +30,14 @@ import { ChatSessionHeader } from "./components/chat-session-header";
 import { EmptyState } from "./components/chat-empty-state";
 import { NewChatButton } from "./components/new-chat-button";
 import { useChatController } from "./components/use-chat-controller";
+import { useChatAnnotations } from "./components/use-chat-annotations";
 import { OfflineBanner } from "./components/offline-banner";
 import { NoAgentBanner } from "./components/no-agent-banner";
 import { ArchivedAgentBanner } from "./components/archived-agent-banner";
 import { AgentAccessRevokedBanner } from "./components/agent-access-revoked-banner";
 import { RuntimeRequiredBanner } from "./components/runtime-required-banner";
+import { ChatAppRequests } from "../common/app-requests";
 import { useRegisterCommandBarContext } from "../search/register-context";
-
-/**
- * An unsent new chat lives only in the draft slot until the first message
- * creates a session. Desktop tabs unmount this page on switch, so "I was
- * composing" cannot be component state — the draft itself is the signal that
- * the compose pane should come back with the text still in it.
- */
-function hasUnsentNewChatDraft(): boolean {
-  const { inputDrafts, inputDraftAttachments } = useChatStore.getState();
-  const text = inputDrafts[DRAFT_NEW_SESSION] ?? "";
-  const uploads = inputDraftAttachments[DRAFT_NEW_SESSION] ?? [];
-  return text.trim().length > 0 || uploads.length > 0;
-}
 
 /**
  * Chat tab — the first-class two-pane surface (thread list on the left,
@@ -93,17 +82,19 @@ export function ChatPage() {
   // Toast when an accepted refresh later fails in the daemon (async half).
   useQuickActionsFailureToast(c.activeSessionId ?? null);
   const regenerateQuickActions = useRegenerateChatQuickActions();
+  const annotations = useChatAnnotations({
+    sessionId: c.activeSessionId,
+    agentName: c.activeAgent?.name,
+    enabled: !c.isSessionArchived && !c.isAgentArchived && !c.isAgentAccessRevoked && c.isAgentRuntimeBound && !c.noAgent,
+  });
   const urlSession = searchParams.get("session") || null;
   const urlAgent = searchParams.get("agent") || null;
 
   // "Composing a brand-new chat" — the user hit ⊕ but hasn't sent yet, so no
-  // session exists. At compact widths this decides list-vs-conversation; on
-  // desktop it decides compose pane vs the neutral "pick a conversation"
-  // prompt. Seed it from the persisted draft so a tab switch (which unmounts
-  // this page) does not throw away an in-progress new chat.
-  const [composingNew, setComposingNew] = useState(
-    () => !useChatStore.getState().activeSessionId && hasUnsentNewChatDraft(),
-  );
+  // session exists. At compact widths this decides list-vs-conversation; on desktop the
+  // conversation pane is always mounted so it only needs to reset itself once a
+  // real session takes over.
+  const [composingNew, setComposingNew] = useState(false);
   useEffect(() => {
     // Read the LIVE store value for the same reason as the session sync
     // effects below: under StrictMode's double-invoke this effect replays
@@ -143,18 +134,6 @@ export function ChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile store/route changes, not URL updates
   }, [isCurrentChatRoute, workspaceSlug, c.activeSessionId]);
-
-  // A retained page (or a remount whose first paint raced the URL sync) comes
-  // back to a bare /chat with the draft still in the store and composingNew
-  // still false. Open the compose pane only once the URL sync above has
-  // settled, and only while no session is selected — an open thread wins, and
-  // the compact back button (same route, session cleared on purpose) does not
-  // re-run this.
-  useEffect(() => {
-    if (!isCurrentChatRoute || getCurrentSlug() !== workspaceSlug) return;
-    if (useChatStore.getState().activeSessionId) return;
-    if (hasUnsentNewChatDraft()) setComposingNew(true);
-  }, [isCurrentChatRoute, workspaceSlug]);
 
   const listCollapsed = useListColumnCollapsed();
 
@@ -284,7 +263,7 @@ export function ChatPage() {
   );
 
   const listBody = (
-    <div className="px-2 py-1">
+    <div className="min-h-0 flex-1 px-2 py-1">
       <ChatThreadList
         sessions={c.sessions}
         agents={c.agents}
@@ -377,13 +356,13 @@ export function ChatPage() {
               : undefined
           }
           quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+          annotations={annotations}
         />
       ) : (
         <EmptyState
           agent={c.activeAgent}
           hasSessions={c.sessions.length > 0}
           onPickPrompt={c.sendConversationStarter}
-          customizeHref={c.customizeConversationStartersHref}
         />
       )}
 
@@ -401,6 +380,10 @@ export function ChatPage() {
       ) : (
         <OfflineBanner agentName={c.activeAgent?.name} availability={c.availability} />
       )}
+
+      <div className="px-4">
+        <ChatAppRequests sessionId={c.activeSessionId} />
+      </div>
 
       <ChatQueue
         tasks={queuedTasks}
@@ -439,6 +422,7 @@ export function ChatPage() {
         onProjectChange={changeProjectContext}
         isProjectUpdating={c.isProjectUpdating}
         focusRequest={c.focusInputRequest}
+        annotations={annotations}
       />
     </div>
   );
@@ -473,7 +457,7 @@ export function ChatPage() {
         {noAgentPage ? (
           noAgentState
         ) : (
-          <div className="flex-1 min-h-0 overflow-y-auto">{listBody}</div>
+          <div className="flex min-h-0 flex-1 flex-col">{listBody}</div>
         )}
       </div>
     );
@@ -488,7 +472,7 @@ export function ChatPage() {
     <div className="flex min-h-0 flex-1">
       <ListColumn collapsed={listCollapsed} width="list">
         {listHeader}
-        <div className="flex-1 min-h-0 overflow-y-auto">{listBody}</div>
+        <div className="flex min-h-0 flex-1 flex-col">{listBody}</div>
       </ListColumn>
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         {listCollapsed && !c.currentSession && <PageHeader>{newChatButton}</PageHeader>}
