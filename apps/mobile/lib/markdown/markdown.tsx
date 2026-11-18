@@ -42,11 +42,13 @@ import { Linking, View } from "react-native";
 import { router } from "expo-router";
 import { EnrichedMarkdownText } from "react-native-enriched-markdown";
 import type { Attachment } from "@multica/core/types";
+import { localAuthToken } from "@/data/local-auth";
 import { useWorkspaceStore } from "@/data/workspace-store";
 import { preprocessMobileMarkdown } from "./preprocess";
 import { useMarkdownStyle } from "./markdown-style";
 import { splitMarkdown } from "./split-markdown";
 import { CodeBlock } from "./code-block";
+import { parseIssueLink } from "./issue-link";
 import { MarkdownImage } from "./markdown-image";
 
 interface Props {
@@ -163,7 +165,23 @@ export function Markdown({
         }
         return;
       }
-      // Everything else — http(s), mailto, tel, app-scheme deep links —
+      if (wsSlug) {
+        const issue = parseIssueLink(
+          url,
+          wsSlug,
+          process.env.EXPO_PUBLIC_WEB_URL,
+          !!localAuthToken,
+        );
+        if (issue) {
+          router.push({
+            pathname: "/[workspace]/issue/[id]",
+            params: { workspace: wsSlug, ...issue },
+          });
+          return;
+        }
+      }
+
+      // Other links — http(s), mailto, tel, app-scheme deep links —
       // hand off to the system. Linking.openURL throws if no app handles
       // the URL; the catch keeps a stray tap from crashing the screen.
       Linking.openURL(url).catch(() => {
