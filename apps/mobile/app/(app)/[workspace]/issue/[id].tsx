@@ -43,13 +43,14 @@ import { useViewedIssuesStore } from "@/data/viewed-issues-store";
 import { useCommentSelectStore } from "@/data/comment-select-store";
 import { useReplyTargetStore } from "@/data/stores/reply-target-store";
 import { useT } from "@/lib/i18n";
+import { ISSUE_IDENTIFIER } from "@/lib/markdown/issue-link";
 
 export default function IssueDetail() {
   // `highlight` + `h` come from inbox deep-link (apps/mobile/app/(app)/
   // [workspace]/(tabs)/inbox.tsx). `highlight` is the target comment id;
   // `h` is a per-tap nonce so re-tapping the same row re-fires the
   // scroll-and-flash effect.
-  const { id, workspace: wsSlug, highlight, h } = useLocalSearchParams<{
+  const { id: routeId, workspace: wsSlug, highlight, h } = useLocalSearchParams<{
     id: string;
     workspace: string;
     highlight?: string;
@@ -58,8 +59,20 @@ export default function IssueDetail() {
   const wsId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const qc = useQueryClient();
 
-  const detail = useQuery(issueDetailOptions(wsId, id));
+  // Resolve human-readable links before mounting UUID-keyed issue queries.
+  const resolveIdentifier = ISSUE_IDENTIFIER.test(routeId);
+  const resolved = useQuery({
+    ...issueDetailOptions(wsId, routeId),
+    enabled: !!wsId && resolveIdentifier,
+  });
+  const id = resolveIdentifier ? (resolved.data?.id ?? "") : routeId;
+  const detail = useQuery({
+    ...issueDetailOptions(wsId, id),
+    initialData: resolveIdentifier ? resolved.data : undefined,
+    initialDataUpdatedAt: resolveIdentifier ? resolved.dataUpdatedAt : undefined,
+  });
   const timeline = useQuery(issueTimelineOptions(wsId, id));
+  const issueError = id ? detail.error : resolved.error;
 
   // Subscribe to per-issue WS events: status/priority/assignee/label
   // changes, comments, activity, reactions, agent task progress.
@@ -193,21 +206,24 @@ export default function IssueDetail() {
             : undefined,
         }}
       />
-      {detail.isLoading ? (
+      {(resolveIdentifier && resolved.isLoading) || detail.isLoading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator />
         </View>
-      ) : detail.error || !issue ? (
+      ) : issueError || !issue ? (
         <View className="flex-1 items-center justify-center px-6 gap-3">
           <Text className="text-sm text-destructive text-center">
             {t("errors.load_failed", {
               message:
-                detail.error instanceof Error
-                  ? detail.error.message
+                issueError instanceof Error
+                  ? issueError.message
                   : "not found",
             })}
           </Text>
-          <Button variant="outline" onPress={() => detail.refetch()}>
+          <Button
+            variant="outline"
+            onPress={() => (id ? detail.refetch() : resolved.refetch())}
+          >
             <Text>{t("common:actions.retry")}</Text>
           </Button>
         </View>
