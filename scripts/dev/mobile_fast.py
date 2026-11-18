@@ -5,21 +5,25 @@ import fcntl
 import json
 import os
 import plistlib
-import re
-from pathlib import Path
+import socket
 import subprocess
 import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 CONFIG = Path.home() / '.config/multica-mobile/config.json'
 STATE = Path.home() / '.local/state/multica-mobile'
 LABEL = 'com.multica.mobile-metro'
+REPO = 'comoysha/multica'
+BRANCH = 'dev/mobile'
 DEV_CLIENT_SCHEME = 'exp+multica-mobile'
-NATIVE = ['apps/mobile/package.json', 'apps/mobile/app.config.ts', 'apps/mobile/patches',
-          'apps/mobile/ios', 'apps/mobile/android', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']
+NATIVE = ['apps/mobile/package.json', 'apps/mobile/app.config.ts', 'apps/mobile/app.config.js',
+          'apps/mobile/app.json', 'apps/mobile/plugins', 'apps/mobile/patches', 'apps/mobile/ios',
+          'apps/mobile/android', 'apps/mobile/assets/icon.png', 'apps/mobile/scripts/ios-run.sh',
+          'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']
 
 
 def run(*args, cwd=None, capture=False, check=True, env=None):
@@ -44,18 +48,18 @@ def locked():
 
 
 def clean(root):
-    if git(root, 'branch', '--show-current') != 'dev/mobile':
-        raise RuntimeError('Refusing to modify a branch other than dev/mobile')
+    if git(root, 'branch', '--show-current') != BRANCH:
+        raise RuntimeError(f'Refusing to modify a branch other than {BRANCH}')
     if git(root, 'status', '--porcelain', '--untracked-files=normal'):
         raise RuntimeError('Development checkout has local changes; preserve and resolve them first')
 
 
-def event(root, action, before):
+def event(root, action, before, **details):
     record = dict(time=datetime.now(timezone(timedelta(hours=8))).isoformat(), action=action,
-                  before=before, after=git(root, 'rev-parse', 'HEAD'))
+                  before=before, after=git(root, 'rev-parse', 'HEAD'), **details)
     with (STATE / 'history.jsonl').open('a') as out:
         out.write(json.dumps(record) + '\n')
-    print(json.dumps(record))
+    return record
 
 
 def service(action, check=True):
@@ -72,7 +76,7 @@ def start_service(plist):
         if result.returncode == 0:
             return
         time.sleep(0.5)
-    raise RuntimeError('Code integration finished, but Metro restart failed. Run the service installation script')
+    raise RuntimeError('Could not start the Metro LaunchAgent')
 
 
 def validate_mobile_env(env, public_url=None):
@@ -118,37 +122,108 @@ def verify_client(app):
                 development_client=True)
 
 
-def update(args):
+def merged_pr(number):
+    result = run('gh', 'pr', 'view', number, '--repo', REPO,
+                 '--json', 'state,baseRefName,mergeCommit,url', capture=True)
+    pr = json.loads(result.stdout)
+    if pr['state'] != 'MERGED' or pr['baseRefName'] != BRANCH or not pr['mergeCommit']:
+        raise RuntimeError(f'PR #{number} must be merged into {BRANCH} before delivery')
+    return pr
+
+
+def is_ancestor(root, older, newer):
+    result = run('git', 'merge-base', '--is-ancestor', older, newer, cwd=root, check=False)
+    if result.returncode > 1:
+        result.check_returncode()
+    return result.returncode == 0
+
+
+def wait_for(predicate, timeout, message):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise RuntimeError(message)
+        time.sleep(0.5)
+
+
+def metro_port_closed(port):
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=1):
+            return False
+    except ConnectionRefusedError:
+        return True
+
+
+def metro_status(port):
+    return run('curl', '--noproxy', '*', '--fail', '--silent', '--max-time', '2',
+               f'http://127.0.0.1:{port}/status', capture=True, check=False)
+
+
+def start_metro(cfg, plist, sha):
+    log = Path(cfg['checkout']) / f'data/logs/{LABEL}.stdout.log'
+    offset = log.stat().st_size if log.exists() else 0
+    start_service(plist)
+
+    def ready():
+        if not log.exists():
+            return False
+        with log.open('rb') as handle:
+            handle.seek(offset)
+            if f'mobile source: {sha}'.encode() not in handle.read().splitlines():
+                return False
+        status = metro_status(cfg['port'])
+        return status.returncode == 0 and status.stdout.strip() == 'packager-status:running'
+
+    wait_for(ready, 30, f'Metro did not become ready at {sha}')
+
+
+def deliver(number):
     cfg = config()
     root = cfg['checkout']
     with locked():
         clean(root)
         before = git(root, 'rev-parse', 'HEAD')
-        if not all(re.fullmatch(r'[0-9a-fA-F]{7,40}', ref) for ref in args.commits):
-            raise RuntimeError('Pass explicit commit SHA values, not HEAD or branch names')
-        commits = [git(root, 'rev-parse', '--verify', f'{ref}^{{commit}}') for ref in args.commits]
-        for sha in commits:
-            if len(git(root, 'rev-list', '--parents', '-n', '1', sha).split()) != 2:
-                raise RuntimeError('Deliver ordinary commits individually, not merge commits')
-            native = git(root, 'diff', '--name-only', f'{sha}^', sha, '--', *NATIVE)
-            if native:
-                raise RuntimeError('Native/dependency inputs changed; rebuild and verify a development client first:\n' + native)
-        # Stop serving bundles while Git applies a possibly multi-commit delivery.
+        pr = merged_pr(number)
+        sha = pr['mergeCommit']['oid']
+        run('git', 'fetch', '--no-tags', '--no-recurse-submodules',
+            f'https://github.com/{REPO}.git', f'refs/heads/{BRANCH}', cwd=root)
+        commit = run('git', 'rev-parse', '--verify', '--quiet', f'{sha}^{{commit}}',
+                     cwd=root, capture=True, check=False)
+        if commit.returncode != 0 or not is_ancestor(root, sha, 'FETCH_HEAD'):
+            raise RuntimeError(f'PR #{number} merge commit is absent from GitHub {BRANCH}')
+        if is_ancestor(root, sha, before):
+            print(f'PR #{number} is already included in the Metro checkout at {before}')
+            return
+        if not is_ancestor(root, before, sha):
+            raise RuntimeError(f'Metro checkout has diverged from {BRANCH}; preserve it and investigate')
+        native = git(root, 'diff', '--name-only', '--no-renames', before, sha, '--', *NATIVE)
+        if native:
+            raise RuntimeError('Native/dependency inputs changed; rebuild and verify a development client first:\n' + native)
+
         plist = Path.home() / f'Library/LaunchAgents/{LABEL}.plist'
-        active = run('launchctl', 'print', f'gui/{os.getuid()}/{LABEL}', capture=True, check=False).returncode == 0
-        if active:
-            run('launchctl', 'bootout', f'gui/{os.getuid()}/{LABEL}')
+        target = f'gui/{os.getuid()}/{LABEL}'
+        if run('launchctl', 'print', target, capture=True, check=False).returncode != 0:
+            raise RuntimeError('Start the Metro LaunchAgent before delivery')
+        run('launchctl', 'bootout', target)
         try:
-            verb = 'revert' if args.command == 'rollback' else 'cherry-pick'
+            wait_for(lambda: metro_port_closed(cfg['port']), 15, 'Previous Metro process did not stop')
+            run('git', 'merge', '--ff-only', sha, cwd=root)
+            start_metro(cfg, plist, sha)
+            record = event(root, 'deliver', before, pr=pr['url'])
+        except (OSError, RuntimeError, subprocess.CalledProcessError, KeyboardInterrupt) as error:
             try:
-                run('git', verb, *commits, cwd=root)
-            except subprocess.CalledProcessError:
-                run('git', verb, '--abort', cwd=root, check=False)
-                raise RuntimeError('Integration failed; operation aborted. Resolve in the task checkout and retry')
-            event(root, args.command, before)
-        finally:
-            if active:
-                start_service(plist)
+                if run('launchctl', 'print', target, capture=True, check=False).returncode == 0:
+                    run('launchctl', 'bootout', target)
+                if git(root, 'rev-parse', 'HEAD') != before:
+                    run('git', 'reset', '--keep', before, cwd=root)
+                wait_for(lambda: metro_port_closed(cfg['port']), 15, 'Metro process did not stop')
+                start_metro(cfg, plist, before)
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as recovery_error:
+                raise RuntimeError(
+                    f'Delivery failed ({error}); could not restore Metro at {before}: {recovery_error}'
+                ) from recovery_error
+            raise RuntimeError(f'Delivery failed ({error}); Metro restored at {before}') from error
+        print(json.dumps(record))
 
 
 def serve():
@@ -186,13 +261,13 @@ def init(args):
         env_file = Path(args.env_file).expanduser().resolve(strict=True)
         if args.host in ['localhost', '127.0.0.1', '0.0.0.0']:
             raise RuntimeError('Use an address reachable by the phone')
-        run('git', 'worktree', 'add', '-b', 'dev/mobile', checkout, 'HEAD', cwd=source)
+        run('git', 'worktree', 'add', '-b', BRANCH, checkout, 'HEAD', cwd=source)
         CONFIG.parent.mkdir(parents=True, exist_ok=True)
         CONFIG.write_text(json.dumps(dict(checkout=str(checkout), env_file=str(env_file),
                                          host=args.host, port=args.port,
                                          public_url=args.public_url), indent=2) + '\n')
         CONFIG.chmod(0o600)
-        event(checkout, 'init', git(checkout, 'rev-parse', 'HEAD'))
+        print(json.dumps(event(checkout, 'init', git(checkout, 'rev-parse', 'HEAD'))))
         print('Install dependencies in', checkout, 'then run launchd_script/install_and_start_service.sh there')
 
 
@@ -205,16 +280,15 @@ def main():
     p.add_argument('--host', required=True)
     p.add_argument('--port', type=int, default=8081)
     p.add_argument('--public-url', help='Persistent HTTPS proxy URL advertised to the phone')
-    for name in ['deliver', 'rollback']:
-        sub.add_parser(name).add_argument('commits', nargs='+')
+    sub.add_parser('deliver').add_argument('pr', type=int, help=f'GitHub PR number in {REPO}')
     for name in ['serve', 'status', 'restart']:
         sub.add_parser(name)
     sub.add_parser('verify-client').add_argument('app', help='Extracted iOS .app directory')
     args = parser.parse_args()
     if args.command == 'init':
         init(args)
-    elif args.command in ['deliver', 'rollback']:
-        update(args)
+    elif args.command == 'deliver':
+        deliver(args.pr)
     elif args.command == 'serve':
         serve()
     elif args.command == 'restart':

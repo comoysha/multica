@@ -124,10 +124,11 @@ The Multica project uses the user-approved personal phone workflow in [apps/mobi
 
 - Start new task checkouts from `dev/mobile`. Work in the isolated checkout provided by Multica, or reuse the task's existing worktree. Keep the main checkout and `~/multica-mobile-dev` read-only while implementing.
 - Do not call `multica_start.py`, `dp_env.sh setup`, or `gate.py prepare` for normal mobile tasks. Do not create a test database or publish a branch package as a routine delivery step.
-- Commit on a task branch and push it. Fetch that branch into `~/multica-mobile-dev` before running `python3 scripts/dev/mobile_fast.py deliver <SHA> [...]` from the task checkout; a separate clone does not share Git objects. Push `dev/mobile` after successful integration.
+- Push `feat/mu-n`, open a GitHub PR targeting `dev/mobile`, and post the PR and change summary on the Multica issue. The user merges the PR. Keep PR merge status automation disabled on the task so the user can accept it after Reload. All feature changes and reverts go through PRs.
+- After the merge, run `python3 scripts/dev/mobile_fast.py deliver <PR number>` on the M4 from a task checkout containing the PR-based delivery script. It verifies the merged PR, advances the fixed checkout to its merge commit, and records the commit once Metro is ready. See the mobile guide for delivery ordering and recovery.
 - Ordinary page and interaction changes reach the installed Debug client through Reload. Daily delivery does not require a full test suite, AI code review, or a new installation package. Run focused verification when the change warrants it; native/dependency changes still require a separately verified development-client build on the registered M2 host.
-- The project's simple workflow has Todo, Done, and Cancelled. After delivery, return ownership to the user without starting an agent run, report the phone version and verification steps, and leave the task pending. Only the user marks it Done or Cancelled. Do not add review statuses or invoke the legacy merge gate.
-- Updating `dev/mobile` does not authorize merging main. Preserve the existing install page and other projects' dev-platform registrations. The personal phone's backend is the live local Multica database, not an isolated test copy; do not use it for destructive test fixtures.
+- The project's simple workflow has Todo, Done, and Cancelled. Return ownership to the user without starting an agent run, leave the task in Todo, and report the phone version and verification steps after delivery. The user marks it Done after checking Reload on the iPhone. Done has no PR, merge, or build side effects.
+- Scope this workflow to `dev/mobile`. Preserve the existing install page and other projects' dev-platform registrations. The personal phone uses the live local Multica database. Keep destructive test fixtures in isolated environments.
 
 ## Change and Delivery Rules
 

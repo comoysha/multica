@@ -1,6 +1,4 @@
 """Exercise integration and failure recovery against a disposable Git repository."""
-import argparse
-import contextlib
 import json
 import plistlib
 from pathlib import Path
@@ -72,6 +70,31 @@ class MobileEnvironmentTest(unittest.TestCase):
         fast.validate_mobile_env(env, 'https://personal.example.invalid:52101')
 
 
+class MetroStartupTest(unittest.TestCase):
+    def test_waits_for_a_fresh_source_line_and_healthy_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / f'data/logs/{fast.LABEL}.stdout.log'
+            log.parent.mkdir(parents=True)
+            source = 'mobile source: expected\n'
+            log.write_text(source)
+            offline = subprocess.CompletedProcess([], 7, '')
+            running = subprocess.CompletedProcess([], 0, 'packager-status:running')
+
+            def probe(ready, timeout, message):
+                self.assertFalse(ready())
+                status.assert_not_called()
+                with log.open('a') as output:
+                    output.write(source)
+                self.assertFalse(ready())
+                self.assertTrue(ready())
+
+            with (patch.object(fast, 'start_service'),
+                  patch.object(fast, 'wait_for', side_effect=probe),
+                  patch.object(fast, 'metro_status', side_effect=[offline, running]) as status):
+                fast.start_metro(dict(checkout=root, port=8081), root / 'metro.plist', 'expected')
+
+
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -79,20 +102,38 @@ class IntegrationTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root / 'repo'
         self.repo.mkdir()
+        self.remote = self.root / 'github.git'
+        fast.run('git', 'init', '-q', '--bare', self.remote)
         fast.run('git', 'init', '-q', '-b', 'task', cwd=self.repo)
         fast.run('git', 'config', 'user.name', 'Fixture', cwd=self.repo)
         fast.run('git', 'config', 'user.email', 'fixture@example.invalid', cwd=self.repo)
-        self.commit('screen.txt', 'base')
-        fast.run('git', 'branch', 'dev/mobile', cwd=self.repo)
+        self.before = self.commit('screen.txt', 'base')
+        fast.run('git', 'branch', fast.BRANCH, cwd=self.repo)
         cfg = self.root / 'config.json'
-        cfg.write_text(json.dumps(dict(checkout=str(self.repo))))
+        cfg.write_text(json.dumps(dict(checkout=str(self.repo), port=8081)))
         self.enterContext(patch.object(fast, 'CONFIG', cfg))
         self.enterContext(patch.object(fast, 'STATE', self.root / 'state'))
+        self.start_metro = self.enterContext(patch.object(fast, 'start_metro'))
+        self.enterContext(patch.object(fast, 'metro_port_closed', return_value=True))
+        self.launchctl = []
+        self.loaded = True
+        self.pr = dict(state='OPEN', baseRefName=fast.BRANCH, mergeCommit=None,
+                       url='https://github.com/comoysha/multica/pull/42')
         original = fast.run
 
         def run(*args, **kwargs):
+            if args[:3] == ('gh', 'pr', 'view'):
+                self.assertEqual(args[3:6], (42, '--repo', fast.REPO))
+                return subprocess.CompletedProcess(args, 0, json.dumps(self.pr))
+            if args[:2] == ('git', 'fetch'):
+                self.assertEqual(args[-2:], (f'https://github.com/{fast.REPO}.git', f'refs/heads/{fast.BRANCH}'))
+                args = (*args[:-2], self.remote, args[-1])
             if args[0] == 'launchctl':
-                return subprocess.CompletedProcess(args, 1, '')
+                action = args[1]
+                self.launchctl.append(action)
+                if action == 'bootout':
+                    self.loaded = False
+                return subprocess.CompletedProcess(args, int(action == 'print' and not self.loaded), '')
             return original(*args, **kwargs)
 
         self.enterContext(patch.object(fast, 'run', run))
@@ -105,46 +146,114 @@ class IntegrationTest(unittest.TestCase):
         fast.run('git', 'commit', '-qm', value, cwd=self.repo)
         return fast.git(self.repo, 'rev-parse', 'HEAD')
 
-    def switch(self):
-        fast.run('git', 'checkout', '-q', 'dev/mobile', cwd=self.repo)
+    def switch(self, branch=fast.BRANCH):
+        fast.run('git', 'checkout', '-q', branch, cwd=self.repo)
 
-    def test_deliver_and_revert_preserves_history(self):
+    def publish(self, sha):
+        fast.run('git', 'push', '-q', self.remote, f'{sha}:refs/heads/{fast.BRANCH}', cwd=self.repo)
+
+    def mark_merged(self, sha):
+        self.pr.update(state='MERGED', mergeCommit={'oid': sha})
+
+    def assert_unchanged(self):
+        self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), self.before)
+        self.assertEqual(self.launchctl, [])
+        self.start_metro.assert_not_called()
+        self.assertFalse((fast.STATE / 'history.jsonl').exists())
+
+    def test_open_pr_is_rejected_even_if_its_commit_is_available(self):
         sha = self.commit('screen.txt', 'visible demo')
+        self.publish(sha)
         self.switch()
-        fast.update(argparse.Namespace(command='deliver', commits=[sha]))
-        self.assertEqual((self.repo / 'screen.txt').read_text(), 'visible demo')
-        delivered = fast.git(self.repo, 'rev-parse', 'HEAD')
-        fast.update(argparse.Namespace(command='rollback', commits=[delivered]))
-        self.assertEqual((self.repo / 'screen.txt').read_text(), 'base')
-        records = (fast.STATE / 'history.jsonl').read_text().splitlines()
-        self.assertEqual(len(records), 2)
-        self.assertTrue(all(json.loads(line)['time'].endswith('+08:00') for line in records))
+        with self.assertRaisesRegex(RuntimeError, 'must be merged'):
+            fast.deliver(42)
+        self.assert_unchanged()
 
-    def test_conflicting_batch_restores_previous_head(self):
-        first = self.commit('extra.txt', 'new file')
-        second = self.commit('screen.txt', 'task edit')
+    def test_merge_into_another_base_is_rejected(self):
+        self.mark_merged(self.commit('screen.txt', 'visible demo'))
+        self.pr['baseRefName'] = 'main'
         self.switch()
-        before = self.commit('screen.txt', 'shared edit')
-        with self.assertRaisesRegex(RuntimeError, 'Integration failed'):
-            fast.update(argparse.Namespace(command='deliver', commits=[first, second]))
-        self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), before)
-        self.assertFalse((self.repo / 'extra.txt').exists())
-        self.assertEqual(fast.git(self.repo, 'status', '--porcelain'), '')
+        with self.assertRaisesRegex(RuntimeError, 'must be merged'):
+            fast.deliver(42)
+        self.assert_unchanged()
+
+    def test_merge_commit_must_be_on_the_fetched_branch(self):
+        self.mark_merged(self.commit('screen.txt', 'visible demo'))
+        self.publish(self.before)
+        self.switch()
+        with self.assertRaisesRegex(RuntimeError, 'absent from GitHub'):
+            fast.deliver(42)
+        self.assert_unchanged()
+
+    def test_delivers_exact_merge_commit_and_retry_is_a_no_op(self):
+        self.commit('screen.txt', 'visible demo')
+        fast.run('git', 'checkout', '-qb', 'github', self.before, cwd=self.repo)
+        fast.run('git', 'merge', '--no-ff', '-qm', 'Merge PR', 'task', cwd=self.repo)
+        merged = fast.git(self.repo, 'rev-parse', 'HEAD')
+        self.mark_merged(merged)
+        newer = self.commit('screen.txt', 'newer change')
+        self.publish(newer)
+        self.switch()
+
+        fast.deliver(42)
+        fast.deliver(42)
+
+        self.assertEqual((self.repo / 'screen.txt').read_text(), 'visible demo')
+        self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), merged)
+        self.start_metro.assert_called_once()
+        self.assertEqual(self.launchctl, ['print', 'bootout'])
+        record = json.loads((fast.STATE / 'history.jsonl').read_text())
+        self.assertEqual((record['before'], record['after'], record['pr']),
+                         (self.before, merged, self.pr['url']))
+        self.assertTrue(record['time'].endswith('+08:00'))
+
+    def test_failed_metro_start_restores_previous_checkout_without_delivery_record(self):
+        sha = self.commit('screen.txt', 'visible demo')
+        self.mark_merged(sha)
+        self.publish(sha)
+        self.switch()
+
+        def start(cfg, plist, expected):
+            self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), expected)
+            self.loaded = True
+            if expected == sha:
+                raise RuntimeError('startup failed')
+
+        self.start_metro.side_effect = start
+        with self.assertRaisesRegex(RuntimeError, f'Metro restored at {self.before}'):
+            fast.deliver(42)
+        self.assertEqual((self.repo / 'screen.txt').read_text(), 'base')
+        self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), self.before)
+        self.assertEqual(self.launchctl, ['print', 'bootout', 'print', 'bootout'])
+        self.assertTrue(self.loaded)
+        self.assertFalse((fast.STATE / 'history.jsonl').exists())
 
     def test_native_change_is_rejected_before_modification(self):
-        sha = self.commit('apps/mobile/package.json', '{}')
+        self.commit('apps/mobile/package.json', '{}')
+        sha = self.commit('screen.txt', 'visible demo')
+        self.mark_merged(sha)
+        self.publish(sha)
         self.switch()
-        before = fast.git(self.repo, 'rev-parse', 'HEAD')
         with self.assertRaisesRegex(RuntimeError, 'rebuild'):
-            fast.update(argparse.Namespace(command='deliver', commits=[sha]))
-        self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), before)
+            fast.deliver(42)
+        self.assert_unchanged()
+
+    def test_diverged_checkout_is_preserved(self):
+        sha = self.commit('screen.txt', 'visible demo')
+        self.mark_merged(sha)
+        self.publish(sha)
+        self.switch()
+        local = self.commit('screen.txt', 'local commit')
+        with self.assertRaisesRegex(RuntimeError, 'diverged'):
+            fast.deliver(42)
+        self.assertEqual(fast.git(self.repo, 'rev-parse', 'HEAD'), local)
+        self.assertEqual(self.launchctl, [])
 
     def test_dirty_checkout_is_preserved(self):
-        sha = self.commit('extra.txt', 'new file')
         self.switch()
         (self.repo / 'screen.txt').write_text('user edit')
         with self.assertRaisesRegex(RuntimeError, 'local changes'):
-            fast.update(argparse.Namespace(command='deliver', commits=[sha]))
+            fast.deliver(42)
         self.assertEqual((self.repo / 'screen.txt').read_text(), 'user edit')
 
     def test_concurrent_delivery_is_rejected(self):
