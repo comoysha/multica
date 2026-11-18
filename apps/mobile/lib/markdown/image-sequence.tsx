@@ -15,7 +15,7 @@
  * shared logic, own the UI).
  *
  * The URIs are resolved the same way `MarkdownImage` resolves the one it
- * renders — same attachment match, same `resolveAttachmentUrl` pass — so the
+ * renders — the same `resolveImageUri` pass — so the
  * URI a tap reports is the one the sequence holds. Bodies go through the
  * renderer's HTML pass first: mobile shows `<img>` as a Markdown image, whose
  * URL is entity-decoded and normalized, and drops the tags around it. Image

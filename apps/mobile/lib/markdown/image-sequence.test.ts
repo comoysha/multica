@@ -2,10 +2,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Attachment } from "@multica/core/types";
 
-const state = vi.hoisted(() => ({
-  contexts: new Map<unknown, unknown>(),
-  setters: [] as ReturnType<typeof vi.fn>[],
-}));
+const state = vi.hoisted(() => {
+  vi.stubEnv("EXPO_PUBLIC_API_URL", "https://api.example.test");
+  return {
+    contexts: new Map<unknown, unknown>(),
+    setters: [] as ReturnType<typeof vi.fn>[],
+    token: null as string | null,
+  };
+});
+vi.mock("@/data/api", () => ({ api: { getToken: () => state.token } }));
 
 vi.mock("react", async (importOriginal) => ({
   ...await importOriginal<typeof import("react")>(),
@@ -42,6 +47,7 @@ const attachment: Attachment = {
 };
 
 const localUploadUrl = "/uploads/photo.png";
+const localDownloadUrl = `https://api.example.test/api/attachments/${ID}/download`;
 const localUpload = {
   ...attachment,
   url: localUploadUrl,
@@ -53,6 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.contexts.clear();
   state.setters.length = 0;
+  state.token = null;
 });
 
 // Follow real parsing, provider values and press/open callbacks. Native leaves
@@ -61,11 +68,11 @@ describe("mobile Markdown image sequence wiring", () => {
   it.each([
     ["Unicode", "![middle](https://cdn.example/图.png)", "https://cdn.example/%E5%9B%BE.png", []],
     ["angle URL with space", "![middle](<https://cdn.example/a b.png>)", "https://cdn.example/a%20b.png", []],
-    ["single-segment relative space", "![middle](</chart v2.png>)", "/chart%20v2.png", []],
+    ["single-segment relative space", "![middle](</chart v2.png>)", "https://api.example.test/chart%20v2.png", []],
     ["escaped backslash", String.raw`![middle](<https://cdn.example/a\\(b).png>)`, "https://cdn.example/a%5C(b).png", []],
     ["existing percent escape", "![middle](https://cdn.example/a%20b.png)", "https://cdn.example/a%20b.png", []],
     ["numeric entity", "![middle](https://cdn.example/a.png?a=1&#x26;b=2)", "https://cdn.example/a.png?a=1&b=2", []],
-    ["relative angle URL with space", "![middle](</uploads/a b.png>)", "/uploads/a%20b.png", []],
+    ["relative angle URL with space", "![middle](</uploads/a b.png>)", "https://api.example.test/uploads/a%20b.png", []],
     ["legacy attachment URL", "![middle](<https://cdn.example/图 v2.png>)", attachment.download_url!, [attachment]],
     ["space entity", "![middle](https://cdn.example/a&#32;b.png)", "https://cdn.example/a%20b.png", []],
     ["CRLF image label with entity", "![mid\r\ndle](https://cdn.example/a.png?a=1&amp;b=2)", "https://cdn.example/a.png?a=1&b=2", []],
@@ -86,7 +93,7 @@ describe("mobile Markdown image sequence wiring", () => {
     ["nested entity", "![middle](https://cdn.example/a.png?a=1&amp;amp;b=2)", "https://cdn.example/a.png?a=1&amp;b=2", []],
     ["reference", "![middle][shot]\n\n[shot]: https://cdn.example/图.png", "https://cdn.example/%E5%9B%BE.png", []],
     ["attachment", `![middle](/api/attachments/${ID}/download)`, attachment.download_url!, [attachment]],
-    ["self-hosted upload", `![middle](${localUploadUrl})`, localUploadUrl, [localUpload]],
+    ["self-hosted upload", `![middle](${localUploadUrl})`, localDownloadUrl, [localUpload]],
     ["HTML", '<img src="https://cdn.example/a.png" width="400" />', "https://cdn.example/a.png", []],
     ["HTML named entity", '<img src="https://cdn.example/a.png?a=1&amp;b=2">', "https://cdn.example/a.png?a=1&b=2", []],
     ["HTML Unicode", '<img src="https://cdn.example/图.png">', "https://cdn.example/%E5%9B%BE.png", []],
@@ -116,7 +123,7 @@ describe("mobile Markdown image sequence wiring", () => {
   it.each([
     ["image name", "!file[photo.png](https://cdn.example/photo.png)", "https://cdn.example/photo.png", []],
     ["image record", `!file[screenshot](/api/attachments/${ID}/download)`, attachment.download_url!, [attachment]],
-    ["self-hosted image record", `!file[photo.png](${localUploadUrl})`, localUploadUrl, [localUpload]],
+    ["self-hosted image record", `!file[photo.png](${localUploadUrl})`, localDownloadUrl, [localUpload]],
     ["Unicode URL", "!file[photo.png](https://cdn.example/图.png)", "https://cdn.example/%E5%9B%BE.png", []],
     ["entity-like URL", "!file[photo.png](https://cdn.example/a.png?a=1&amp;b=2)", "https://cdn.example/a.png?a=1&amp;b=2", []],
     ["backslash and brackets in URL", String.raw`!file[photo.png](https://cdn.example/a\b<c(d>.png)`, "https://cdn.example/a%5Cb%3Cc(d%3E.png", []],
@@ -153,6 +160,29 @@ describe("mobile Markdown image sequence wiring", () => {
       "https://cdn.example/first.png",
       "https://cdn.example/last.png",
     ]);
+  });
+
+  it("authenticates self-hosted images inline and in the ordered lightbox", () => {
+    state.token = "test-token";
+    const externalUri = "https://other.example.test/api/attachments/22222222-2222-4222-8222-222222222222/download";
+    const provider = ImageSequenceProvider({
+      blocks: [{ content: `![](${externalUri})\n\n![](${localUploadUrl})`, attachments: [localUpload] }],
+      children: null,
+    });
+    state.contexts.set(provider.type, provider.props.value);
+    const lightbox = LightboxProvider({ children: null });
+    state.contexts.set(lightbox.type, lightbox.props.value);
+    const image = MarkdownImage({ uri: localUploadUrl, attachments: [localUpload] });
+    const headers = { Authorization: "Bearer test-token" };
+    expect(image.props.children.props.children.props.source).toEqual({ uri: localDownloadUrl, headers });
+
+    // The external image deliberately uses a different attachment ID so it
+    // stays external instead of resolving through the trusted attachment row.
+    image.props.onPress();
+    expect(state.setters[0]).toHaveBeenCalledExactlyOnceWith({
+      images: [{ uri: externalUri }, { uri: localDownloadUrl, headers, cache: "reload" }],
+      index: 1,
+    });
   });
 
   it("does not count an HTML image shown literally in code", () => {

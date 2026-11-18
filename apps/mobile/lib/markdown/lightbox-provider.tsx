@@ -22,9 +22,11 @@
  * desktop chevrons — same semantics, phone-native interaction.
  */
 import { createContext, use, useMemo, useState, type ReactNode } from "react";
-import { View } from "react-native";
+import { View, type ImageURISource } from "react-native";
 import ImageView from "react-native-image-viewing";
 import { Text } from "@/components/ui/text";
+import { api } from "@/data/api";
+import { imageRequestHeaders } from "./resolve-image-uri";
 
 interface LightboxApi {
   /**
@@ -47,7 +49,7 @@ export function useLightbox(): LightboxApi {
 }
 
 interface Viewing {
-  images: { uri: string }[];
+  images: ImageURISource[];
   index: number;
 }
 
@@ -57,7 +59,7 @@ export function LightboxProvider({ children }: { children: ReactNode }) {
   // `viewing` itself is the frozen snapshot taken when the viewer opened.
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const api = useMemo<LightboxApi>(
+  const lightbox = useMemo<LightboxApi>(
     () => ({
       open: (uri, sequence) => {
         const uris = sequence?.length ? [...sequence] : [uri];
@@ -67,7 +69,14 @@ export function LightboxProvider({ children }: { children: ReactNode }) {
         const images = found >= 0 ? uris : [uri];
         const index = found >= 0 ? found : 0;
         setCurrentIndex(index);
-        setViewing({ images: images.map((u) => ({ uri: u })), index });
+        const token = api.getToken();
+        setViewing({
+          images: images.map((uri) => {
+            const headers = imageRequestHeaders(uri, token);
+            return headers ? { uri, headers, cache: "reload" } : { uri };
+          }),
+          index,
+        });
       },
     }),
     [],
@@ -92,7 +101,7 @@ export function LightboxProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <LightboxContext.Provider value={api}>
+    <LightboxContext.Provider value={lightbox}>
       {children}
       <ImageView
         images={viewing?.images ?? []}

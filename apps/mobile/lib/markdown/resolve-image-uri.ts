@@ -1,29 +1,31 @@
 import type { Attachment } from "@multica/core/types";
+import { attachmentIdFromDownloadURL } from "@multica/core/types/attachment-url";
 import { matchAttachmentByURL } from "@multica/core/attachments/image-sequence";
-import { resolveAttachmentUrl, resolveAttachmentUrlWithBase } from "@/lib/attachment-url";
+import { resolveAttachmentUrlWithBase } from "@/lib/attachment-url";
 
-function imageCandidate(uri: string, attachments?: Attachment[]): string {
-  const match = matchAttachmentByURL(uri, attachments);
-  // Local storage exposes /uploads publicly. Its markdown URL is the same as
-  // the stored URL, but on a test backend it can contain localhost. The
-  // generic /api/attachments/:id/download URL needs bearer auth, which an
-  // ExpoImage request cannot supply, so keep the public storage route.
-  let publicStorageUrl: string | undefined;
-  if (match?.url && match.markdown_url === match.url) {
-    try {
-      if (new URL(match.url).pathname.startsWith("/uploads/")) publicStorageUrl = match.url;
-    } catch {
-      if (match.url.startsWith("/uploads/")) publicStorageUrl = match.url;
-    }
-  }
-  return publicStorageUrl || match?.download_url || match?.markdown_url || match?.url || uri;
-}
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
 
-/** Pick a URL that native image loaders can fetch without API auth headers. */
 export function resolveImageUri(uri: string, attachments?: Attachment[]): string {
-  return resolveAttachmentUrl(imageCandidate(uri, attachments)) ?? uri;
+  return resolveImageUriWithBase(uri, attachments, API_URL);
 }
 
 export function resolveImageUriWithBase(uri: string, attachments: Attachment[] | undefined, baseUrl: string): string {
-  return resolveAttachmentUrlWithBase(imageCandidate(uri, attachments), baseUrl) ?? uri;
+  const match = matchAttachmentByURL(uri, attachments);
+  // Upgraded self-hosted servers serve legacy local uploads through the same
+  // authenticated download endpoint as new attachments.
+  const candidate = match?.download_url || match?.markdown_url || match?.url || uri;
+  return resolveAttachmentUrlWithBase(candidate, baseUrl) ?? uri;
+}
+
+export function imageRequestHeaders(uri: string, token: string | null, baseUrl = API_URL) {
+  if (!token || !attachmentIdFromDownloadURL(uri)) return undefined;
+  try {
+    const api = new URL(baseUrl);
+    if (api.protocol !== "http:" && api.protocol !== "https:") return undefined;
+    const image = new URL(uri, api);
+    if (image.origin === api.origin) return { Authorization: `Bearer ${token}` };
+  } catch {
+    // A malformed image URL is never sent a credential.
+  }
+  return undefined;
 }
