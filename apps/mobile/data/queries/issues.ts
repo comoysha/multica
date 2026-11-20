@@ -8,29 +8,28 @@
  */
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "@/data/api";
+import { collectIssuePages } from "@/lib/collect-issue-pages";
 import { issueKeys } from "./issue-keys";
 
 export { issueKeys } from "./issue-keys";
 
 /**
- * Workspace-wide issue list. Backend filters by `X-Workspace-Slug` header
- * (root CLAUDE.md "All queries filter by workspace_id"), so we pass an
- * empty params object — server returns every issue the user is allowed to
- * see in the current workspace.
+ * Workspace-wide issue list. Backend filters by `X-Workspace-Slug`.
+ * One response is at most 100 rows (server cap) ordered by position, so
+ * the first page can be entirely `done`. Saved-view filters run on this
+ * list in memory — collect every page or backlog / todo disappear.
  *
- * Cache shape: flat `Issue[]` (we strip `.issues` from the response) so
- * the WS updaters can patch this list with the same shape as
- * myIssueListOptions. Pagination is deferred — web's `IssuesPage` also
- * fetches all in one shot today (`packages/views/issues/components/
- * issues-page.tsx:30`).
+ * Cache shape stays a flat `Issue[]` under `issueKeys.list(wsId)` so the
+ * WS updaters can patch it.
  */
 export const issueListOptions = (wsId: string | null) =>
   queryOptions({
     queryKey: issueKeys.list(wsId),
-    queryFn: async ({ signal }) => {
-      const res = await api.listIssues({}, { signal });
-      return res.issues;
-    },
+    queryFn: ({ signal }) =>
+      collectIssuePages(async (offset, limit) => {
+        const res = await api.listIssues({ limit, offset }, { signal });
+        return { issues: res.issues, total: res.total };
+      }),
     enabled: !!wsId,
   });
 

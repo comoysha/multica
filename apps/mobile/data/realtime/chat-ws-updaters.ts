@@ -293,6 +293,31 @@ export function seedAcceptedPendingTask(
 // Task messages (live timeline, keyed by taskId)
 
 /**
+ * Whether a live `task:message` frame belongs on this session's screen.
+ *
+ * The server never populates `chat_session_id` on task:message payloads (the
+ * field exists in the shared type for forward-compat only), so gating on it
+ * drops EVERY frame and the live timeline never renders (MU-363). When the
+ * field is absent, match the session's in-flight task from the pending-task
+ * cache instead: the only task that can stream into this screen is the one it
+ * is waiting on. Dropped frames cost nothing — rows are persisted server-side
+ * and the taskMessages query backfills them on mount.
+ */
+export function isChatTaskMessageForSession(
+  qc: QueryClient,
+  sessionId: string,
+  payload: TaskMessagePayload,
+): boolean {
+  if (payload.chat_session_id) {
+    return payload.chat_session_id === sessionId;
+  }
+  const pending = qc.getQueryData<ChatPendingTask>(
+    chatKeys.pendingTask(sessionId),
+  );
+  return pending?.task_id === payload.task_id;
+}
+
+/**
  * Append a `task:message` payload into the per-task timeline cache.
  *
  * - De-dupes on `seq` (server may re-emit on flaky network).

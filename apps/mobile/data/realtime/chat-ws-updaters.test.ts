@@ -5,11 +5,13 @@ import type {
   ChatMessage,
   ChatPendingTask,
   ChatQuickActionsPayload,
+  TaskMessagePayload,
 } from "@multica/core/types";
 
 import {
   applyChatDoneToCache,
   applyChatQuickActionsToCache,
+  isChatTaskMessageForSession,
   promotePendingTaskToRunning,
   seedAcceptedPendingTask,
   seedPendingTaskFromQueued,
@@ -385,5 +387,63 @@ describe("applyChatQuickActionsToCache", () => {
       { label: "Draft it", prompt: "Draft the complete plan", primary: true },
     ]);
     unsub();
+  });
+});
+
+describe("isChatTaskMessageForSession", () => {
+  const taskMsg = (
+    over: Partial<TaskMessagePayload> = {},
+  ): TaskMessagePayload => ({
+    task_id: "task-1",
+    issue_id: "",
+    seq: 1,
+    type: "thinking",
+    ...over,
+  });
+
+  it("matches on chat_session_id when the payload carries it", () => {
+    const qc = new QueryClient();
+    expect(
+      isChatTaskMessageForSession(
+        qc,
+        SESSION,
+        taskMsg({ chat_session_id: SESSION }),
+      ),
+    ).toBe(true);
+    expect(
+      isChatTaskMessageForSession(
+        qc,
+        SESSION,
+        taskMsg({ chat_session_id: "other-session" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("falls back to the in-flight task id when chat_session_id is absent (MU-363)", () => {
+    const qc = new QueryClient();
+    qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(SESSION), {
+      task_id: "task-1",
+      status: "running",
+      created_at: "2026-07-09T00:00:00Z",
+    });
+    expect(isChatTaskMessageForSession(qc, SESSION, taskMsg())).toBe(true);
+  });
+
+  it("drops frames for tasks this session is not waiting on", () => {
+    const qc = new QueryClient();
+    qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(SESSION), {
+      task_id: "task-1",
+      status: "running",
+      created_at: "2026-07-09T00:00:00Z",
+    });
+    expect(
+      isChatTaskMessageForSession(qc, SESSION, taskMsg({ task_id: "task-2" })),
+    ).toBe(false);
+  });
+
+  it("drops every frame when the session has no in-flight task", () => {
+    const qc = new QueryClient();
+    qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(SESSION), {});
+    expect(isChatTaskMessageForSession(qc, SESSION, taskMsg())).toBe(false);
   });
 });
