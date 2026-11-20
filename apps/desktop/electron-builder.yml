@@ -43,10 +43,13 @@ asarUnpack:
 # launch. See scripts/mac-update-floor.cjs for why this can't be plain config.
 beforePack: ./scripts/mac-update-floor.cjs
 afterPack: ./scripts/branch-credential-guard.cjs
+afterSign: ./scripts/verify-mac-release.mjs
 mac:
   # Electron 44 requires macOS 13 Ventura; declare it on every mac bundle.
   minimumSystemVersion: "13.0.0"
   entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Multica uses the microphone for voice input when you dictate into chat or comments.
   # Forward electron-builder's resolved identity fingerprint to its normal
   # signing implementation. The default callback degrades it to a common name,
   # which is ambiguous when a keychain contains renewed same-name certificates.

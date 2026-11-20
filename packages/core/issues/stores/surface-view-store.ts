@@ -224,6 +224,17 @@ export function seedIssueSurfaceViewState(
   store.setState(mergeViewStatePersisted(definition, defaults), true);
 }
 
+/** Apply a confirmed edit while keeping preferences the saved view omits. */
+export function applyIssueSurfaceViewDefinition(
+  surfaceKey: string,
+  definition: Record<string, unknown>,
+) {
+  const store = getIssueSurfaceViewStore(surfaceKey);
+  const current = persistedIssueViewState(store.getState());
+  const defaults = viewStoreSlice(store.setState);
+  store.setState(mergeViewStatePersisted({ ...current, ...definition }, defaults), true);
+}
+
 export function clearIssueSurfaceViewState(surfaceKey: string) {
   issueSurfaceViewRegistryStore.getState().clearSurfaceState(surfaceKey);
   const store = surfaceStores.get(surfaceKey);

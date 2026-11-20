@@ -8,7 +8,7 @@ import { IconButton } from "@multica/ui/components/common/icon-button";
 import { useIsCompact } from "@multica/ui/hooks/use-mobile";
 import { useRequiredWorkspaceSlug, useWorkspacePaths } from "@multica/core/paths";
 import { getCurrentSlug } from "@multica/core/platform";
-import { useChatStore } from "@multica/core/chat";
+import { DRAFT_NEW_SESSION, useChatStore } from "@multica/core/chat";
 import { chatQuickActionsPendingOptions } from "@multica/core/chat/queries";
 import { useRegenerateChatQuickActions } from "@multica/core/chat/mutations";
 import { useQuickActionsPendingTimeout } from "@multica/core/chat/use-quick-actions-pending-timeout";
@@ -25,6 +25,7 @@ import { useT } from "../i18n";
 import { ChatMessageList, ChatMessageSkeleton } from "./components/chat-message-list";
 import { ChatInput } from "./components/chat-input";
 import { ChatQueue } from "./components/chat-queue";
+import { ChatWakeupStrip, useChatWakeups } from "./components/chat-wakeups";
 import { ChatThreadList } from "./components/chat-thread-list";
 import { ChatSessionHeader } from "./components/chat-session-header";
 import { EmptyState } from "./components/chat-empty-state";
@@ -38,6 +39,14 @@ import { AgentAccessRevokedBanner } from "./components/agent-access-revoked-bann
 import { RuntimeRequiredBanner } from "./components/runtime-required-banner";
 import { ChatAppRequests } from "../common/app-requests";
 import { useRegisterCommandBarContext } from "../search/register-context";
+
+function hasUnsentNewChatDraft(): boolean {
+  const { inputDrafts, inputDraftAttachments } = useChatStore.getState();
+  return Boolean(
+    inputDrafts[DRAFT_NEW_SESSION]?.trim() ||
+    inputDraftAttachments[DRAFT_NEW_SESSION]?.length,
+  );
+}
 
 /**
  * Chat tab — the first-class two-pane surface (thread list on the left,
@@ -81,6 +90,7 @@ export function ChatPage() {
   useQuickActionsPendingTimeout(c.activeSessionId ?? null, quickActionsPending);
   // Toast when an accepted refresh later fails in the daemon (async half).
   useQuickActionsFailureToast(c.activeSessionId ?? null);
+  const wakeups = useChatWakeups(c.activeSessionId);
   const regenerateQuickActions = useRegenerateChatQuickActions();
   const annotations = useChatAnnotations({
     sessionId: c.activeSessionId,
@@ -94,7 +104,9 @@ export function ChatPage() {
   // session exists. At compact widths this decides list-vs-conversation; on desktop the
   // conversation pane is always mounted so it only needs to reset itself once a
   // real session takes over.
-  const [composingNew, setComposingNew] = useState(false);
+  const [composingNew, setComposingNew] = useState(
+    () => !useChatStore.getState().activeSessionId && hasUnsentNewChatDraft(),
+  );
   useEffect(() => {
     // Read the LIVE store value for the same reason as the session sync
     // effects below: under StrictMode's double-invoke this effect replays
@@ -134,6 +146,14 @@ export function ChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile store/route changes, not URL updates
   }, [isCurrentChatRoute, workspaceSlug, c.activeSessionId]);
+
+  // A desktop tab can remount this page, and the web router can retain it.
+  // Restore the unsent draft when entering the unselected chat route.
+  useEffect(() => {
+    if (!isCurrentChatRoute || getCurrentSlug() !== workspaceSlug) return;
+    if (useChatStore.getState().activeSessionId) return;
+    if (hasUnsentNewChatDraft()) setComposingNew(true);
+  }, [isCurrentChatRoute, workspaceSlug]);
 
   const listCollapsed = useListColumnCollapsed();
 
@@ -357,6 +377,7 @@ export function ChatPage() {
           }
           quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
           annotations={annotations}
+          wakeups={wakeups}
         />
       ) : (
         <EmptyState
@@ -385,8 +406,11 @@ export function ChatPage() {
         <ChatAppRequests sessionId={c.activeSessionId} />
       </div>
 
+      <ChatWakeupStrip sessionId={c.activeSessionId} wakeups={wakeups} />
+
       <ChatQueue
         tasks={queuedTasks}
+        wakeups={wakeups}
         headStatus={c.pendingTask?.status}
         onSendNow={c.handleSendQueuedTaskNow}
         sendNowDisabled={c.isAgentAccessRevoked}
@@ -405,6 +429,7 @@ export function ChatPage() {
         onStop={c.handleStop}
         isRunning={!!c.pendingTaskId}
         allowSubmitWhileRunning={c.pendingTask?.supports_queue === true}
+        canSteerWhileRunning={c.pendingTask?.can_supplement}
         disabled={
           c.isSessionArchived ||
           c.isAgentArchived ||

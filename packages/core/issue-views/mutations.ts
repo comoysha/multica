@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { IssueView } from "../api/schemas";
 import type { CreateIssueViewRequest } from "../api/schemas";
+import { applyIssueSurfaceViewDefinition } from "../issues/stores/surface-view-store";
+import { getCurrentWsId } from "../platform/workspace-storage";
 import { issueViewKeys } from "./queries";
 
 /** Create is a confirmed flow (dialog + toast) — no optimism, await then
@@ -52,7 +54,13 @@ export function useUpdateIssueView(wsId: string) {
   return useMutation({
     mutationFn: ({ id, ...data }: UpdateIssueViewInput) =>
       api.updateIssueView(id, data),
-    onSuccess: () => {
+    onSuccess: (updated, input) => {
+      if (updated && (input.query || input.display) && getCurrentWsId() === wsId) {
+        applyIssueSurfaceViewDefinition(`view:${updated.id}`, {
+          ...(input.query && updated.query),
+          ...(input.display && updated.display),
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
     },
   });

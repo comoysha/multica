@@ -104,6 +104,11 @@ export function AuthInitializer({
         // the persistence contract explicitly.
         configStore
           .getState()
+          .setWebhookPayloadConditionsSupported(
+            cfg.webhook_payload_conditions_supported === true,
+          );
+        configStore
+          .getState()
           .setAgentConversationStartersSupported(
             cfg.agent_conversation_starters_supported === true,
           );
@@ -119,6 +124,7 @@ export function AuthInitializer({
           .setCommentDeleteKeepRepliesSupported(
             cfg.comment_delete_keep_replies_supported === true,
           );
+        configStore.getState().setThemeStoreEnabled(cfg.theme_store_enabled === true);
         if (cfg.posthog_key) {
           initAnalytics({
             key: cfg.posthog_key,

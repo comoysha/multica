@@ -81,7 +81,8 @@ import {
 } from "@multica/core/runtimes";
 import { useConfigStore } from "@multica/core/config";
 import type { LocalDirectoryExecutionMode } from "@multica/core/types";
-import { LocalDirectoryModeOptions } from "../projects/components/local-directory-mode-dialog";
+import { LocalDirectoryModeOptions } from "../projects/components/local-directory-mode-options";
+import { getProjectFoldersExtension, useProjectFolders } from "../extensions";
 
 /**
  * Builds the resource_ref for a local directory attached during project
@@ -142,7 +143,13 @@ function RepoUrlText({
   );
 }
 
-export function CreateProjectModal({ onClose }: { onClose: () => void }) {
+export function CreateProjectModal({
+  onClose,
+  data,
+}: {
+  onClose: () => void;
+  data?: Record<string, unknown> | null;
+}) {
   const { t } = useT("modals");
   // The execution-mode copy lives in the projects namespace alongside the
   // resource panel's, so both entry points describe the choice identically.
@@ -316,6 +323,11 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   };
 
   const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const folders = useProjectFolders(wsId);
+  const FolderField = getProjectFoldersExtension()?.CreateProjectField;
+  const [folderId, setFolderId] = useState<string | null>(
+    typeof data?.folderId === "string" ? data.folderId : null,
+  );
 
   // Sync field changes to draft store
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
@@ -409,6 +421,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
         resources,
         ...(visibility === "private" ? { visibility, member_ids: memberIds } : {}),
       });
+      if (folderId && folders.canFile) folders.moveProject(project.id, folderId);
       clearDraft();
       onClose();
       toast.success(t(($) => $.create_project.toast_created));
@@ -627,6 +640,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
           </DropdownMenu>
 
           <WorkflowPill value={workflowId} onChange={setWorkflowId} />
+          {FolderField && <FolderField value={folderId} onChange={setFolderId} />}
           {<ProjectAccessDraftPicker visibility={visibility} memberIds={memberIds} members={members}
             leadId={leadType === "member" ? leadId : undefined}
             onChange={(value, ids) => { setVisibility(value); setMemberIds(ids); setDraft({ visibility: value, memberIds: ids }); }} />}
@@ -1029,7 +1043,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
                                 size="sm"
                                 variant="ghost"
                                 // Sized to its (short) label so the wider
-                                // "Change directory…" beside it fits whole.
+                                // "Change folder..." beside it fits whole.
                                 className="h-6 shrink-0 text-caption"
                               >
                                 {effectiveLocalMode === "worktree" ? (
