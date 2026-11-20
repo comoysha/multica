@@ -72,7 +72,7 @@ function migrateLegacySurfaceState(
     (state.sortBy === undefined || state.sortBy === "position") &&
     (state.sortDirection === undefined || state.sortDirection === "asc")
   ) {
-    next.sortBy = "created_at";
+    next.sortBy = "updated_at";
     next.sortDirection = "desc";
   }
   if (isLegacyCardDefault(state.cardProperties)) {
@@ -224,10 +224,17 @@ export function seedIssueSurfaceViewState(
   store.setState(mergeViewStatePersisted(definition, defaults), true);
 }
 
-// The first-open seed above is intentionally one-shot: once the user has
-// local state, re-seeding would clobber it. Saving a view writes the
-// surface's own current state as the definition, so the local copy never
-// goes stale and no separate apply path is needed.
+/** Apply a confirmed edit while keeping preferences the saved view omits. */
+export function applyIssueSurfaceViewDefinition(
+  surfaceKey: string,
+  definition: Record<string, unknown>,
+) {
+  const store = getIssueSurfaceViewStore(surfaceKey);
+  const current = persistedIssueViewState(store.getState());
+  const defaults = viewStoreSlice(store.setState);
+  store.setState(mergeViewStatePersisted({ ...current, ...definition }, defaults), true);
+}
+
 export function clearIssueSurfaceViewState(surfaceKey: string) {
   issueSurfaceViewRegistryStore.getState().clearSurfaceState(surfaceKey);
   const store = surfaceStores.get(surfaceKey);

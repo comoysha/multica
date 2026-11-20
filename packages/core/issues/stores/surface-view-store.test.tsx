@@ -10,6 +10,7 @@ import {
   getIssueSurfaceViewStore,
   pruneIssueSurfaceViewStates,
   seedIssueSurfaceViewState,
+  applyIssueSurfaceViewDefinition,
 } from "./surface-view-store";
 
 const flush = async () => {
@@ -103,7 +104,7 @@ describe("issue surface view store registry", () => {
 
     const legacy = getIssueSurfaceViewStore("workspace:legacy").getState();
     expect([legacy.sortBy, legacy.sortDirection]).toEqual([
-      "created_at",
+      "updated_at",
       "desc",
     ]);
     expect(legacy.cardProperties.description).toBe(false);
@@ -242,6 +243,22 @@ describe("issue surface view store registry", () => {
     expect(view.getState().agentRunningFilter).toBe(true);
   });
 
+  it("persists Idle per workspace and resets it with the other filters", async () => {
+    setCurrentWorkspace("acme", "ws_a");
+    await flush();
+    seedIssueSurfaceViewState("view:idle", { agentIdleFilter: true });
+    const view = getIssueSurfaceViewStore("view:idle");
+    expect(view.getState().agentIdleFilter).toBe(true);
+    setCurrentWorkspace("beta", "ws_b");
+    await flush();
+    expect(view.getState().agentIdleFilter).toBe(false);
+    setCurrentWorkspace("acme", "ws_a");
+    await flush();
+    expect(view.getState().agentIdleFilter).toBe(true);
+    view.getState().clearFilters();
+    expect(view.getState().agentIdleFilter).toBe(false);
+  });
+
   it("clears one surface without touching sibling surfaces", async () => {
     setCurrentWorkspace("acme", "ws_a");
     await flush();
@@ -260,7 +277,7 @@ describe("issue surface view store registry", () => {
     );
   });
 
-  it("keeps local state on re-seed once the surface has been opened", async () => {
+  it("applies an edited view definition over the first-open seed", async () => {
     setCurrentWorkspace("acme", "ws_a");
     await flush();
     seedIssueSurfaceViewState("view:v1", {
@@ -270,12 +287,21 @@ describe("issue surface view store registry", () => {
     const store = getIssueSurfaceViewStore("view:v1");
     store.getState().setViewMode("board");
 
-    // Re-seeding is a no-op once local state exists.
+    // Re-seeding is a no-op once local state exists (the reported bug).
     seedIssueSurfaceViewState("view:v1", {
       statusFilters: ["todo", "in_progress", "in_review"],
     });
     expect(store.getState().statusFilters).toEqual(["todo", "in_progress"]);
+
+    applyIssueSurfaceViewDefinition("view:v1", {
+      statusFilters: ["todo", "in_progress", "in_review"],
+    });
+    expect(store.getState().statusFilters).toEqual(["todo", "in_progress", "in_review"]);
+    // Fields the definition does not carry keep the local value.
     expect(store.getState().viewMode).toBe("board");
+    expect(
+      getIssueSurfaceViewStateRegistrySnapshot()["view:v1"]?.state.statusFilters,
+    ).toEqual(["todo", "in_progress", "in_review"]);
   });
 
   it("prunes invalid surfaces and resets live stores for pruned keys", async () => {
